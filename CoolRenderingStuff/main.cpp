@@ -14,6 +14,12 @@
 #include <fstream>
 #include <cassert>
 
+#include <DirectXMath.h>
+
+using namespace DirectX;
+
+#define PI 3.1415927f
+
 struct GraphicsPipeline {
 	D3D_PRIMITIVE_TOPOLOGY primitiveTopology;
 
@@ -45,6 +51,11 @@ struct GraphicsPipeline {
 	}
 };
 
+struct PerFrameUniforms {
+	DirectX::XMMATRIX view;
+	DirectX::XMMATRIX viewProj;
+};
+
 class Application {
 public:
 	static void GlfwErrorCallback(int error, const char* description) {
@@ -55,6 +66,34 @@ public:
 		auto app = reinterpret_cast<Application*>(glfwGetWindowUserPointer(window));
 
 		app->OnWindowResized(width, height);
+	}
+
+	static void GlfwCursorPosCallback(GLFWwindow* window, double x, double y) {
+		int width, height;
+		glfwGetWindowSize(window, &width, &height);
+
+		static bool isFirstTime = true;
+		static float lastX = 0.0f;
+		static float lastY = 0.0f;
+
+		auto app = reinterpret_cast<Application*>(glfwGetWindowUserPointer(window));
+
+		if (isFirstTime) {
+			lastX = x;
+			lastY = y;
+			isFirstTime = false;
+		}
+
+		float extent = PI - 0.01f;
+
+		app->yaw += (static_cast<float>(x) - lastX) / width;
+		app->pitch += (static_cast<float>(y) - lastY) / height;
+
+		app->yaw = std::fmodf(app->yaw, PI * 2.0f);
+		app->pitch = std::fmaxf(-extent, std::fminf(extent, app->pitch));
+
+		lastX = (float)x;
+		lastY = (float)y;
 	}
 
 	static std::vector<char> readFile(const std::string& filename) {
@@ -95,11 +134,18 @@ private:
 	uint32_t multisampleCount = 4;
 	int multisampleQuality = D3D11_STANDARD_MULTISAMPLE_PATTERN;
 
+	float yaw;
+	float pitch;
+
+	ID3D11Buffer* perFrameUniformsBuffer;
+	PerFrameUniforms perFrameUniforms;
+
 public:
 	Application() {
 		createWindow();
 		createDeviceAndSwapChain();
 		createGraphicsPipeline();
+		createConstantBuffers();
 	}
 
 	~Application() {
@@ -121,6 +167,11 @@ public:
 		while (!glfwWindowShouldClose(window)) {
 			glfwPollEvents();
 
+			if (glfwGetKey(window, GLFW_KEY_ESCAPE) == GLFW_PRESS) {
+				glfwSetWindowShouldClose(window, true);
+			}
+
+			updateFrame();
 			drawFrame();
 		}
 	}
@@ -142,7 +193,10 @@ private:
 
 		glfwSetWindowUserPointer(window, this);
 
+		glfwSetInputMode(window, GLFW_CURSOR, GLFW_CURSOR_DISABLED);
+
 		glfwSetWindowSizeCallback(window, GlfwWindowSizeCallback);
+		glfwSetCursorPosCallback(window, GlfwCursorPosCallback);
 	}
 
 	void createDeviceAndSwapChain() {
@@ -285,6 +339,37 @@ private:
 		graphicsPipeline->scissor = scissor;
 	}
 
+	void createConstantBuffers() {
+		D3D11_BUFFER_DESC desc = {};
+		desc.ByteWidth = sizeof(PerFrameUniforms);
+		desc.Usage = D3D11_USAGE_DYNAMIC;
+		desc.BindFlags = D3D11_BIND_CONSTANT_BUFFER;
+		desc.CPUAccessFlags = D3D11_CPU_ACCESS_WRITE;
+		desc.MiscFlags = 0;
+		desc.StructureByteStride = 0;
+
+		if (FAILED(device->CreateBuffer(&desc, nullptr, &perFrameUniformsBuffer))) {
+			throw std::runtime_error("Failed to create cbuffer!");
+		}
+	}
+
+	void updateFrame() {
+		auto look = XMMatrixRotationRollPitchYaw(pitch, yaw, 0.0f);
+		auto trans = XMMatrixTranslation(0.0f, 0.0f, -1.0f);
+
+		auto camera = look * trans;
+		auto det = XMMatrixDeterminant(camera);
+		auto view = XMMatrixInverse(&det, camera);
+
+		perFrameUniforms.view = view;
+		XMMATRIX proj;
+		int width, height;
+		glfwGetWindowSize(window, &width, &height);
+
+		proj = XMMatrixPerspectiveFovLH(90.0f, static_cast<float>(width) / height, 0.1f, 100.0f);
+		perFrameUniforms.viewProj = perFrameUniforms.view * proj;
+	}
+
 	void drawFrame() {
 		graphicsPipeline->bind(context);
 
@@ -292,7 +377,15 @@ private:
 		context->ClearRenderTargetView(multisampleRTV, clearColor);
 		context->OMSetRenderTargets(1, &multisampleRTV, nullptr);
 
+		D3D11_MAPPED_SUBRESOURCE mapped{};
+		context->Map(perFrameUniformsBuffer, 0, D3D11_MAP_WRITE_DISCARD, 0, &mapped);
+		memcpy(mapped.pData, &perFrameUniforms, sizeof(PerFrameUniforms));
+		context->Unmap(perFrameUniformsBuffer, 0);
+
 		// Drawing happens here.
+
+		context->VSSetConstantBuffers(0, 1, &perFrameUniformsBuffer);
+		context->PSSetConstantBuffers(0, 1, &perFrameUniformsBuffer);
 
 		context->Draw(3, 0);
 

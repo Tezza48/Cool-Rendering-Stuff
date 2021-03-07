@@ -15,7 +15,7 @@ VertToPixel main(uint index: SV_VertexID)
     };
 
     VertToPixel o;
-    o.position = float4(positions[index], 0.0f, 1.0f);
+    o.position = mul(g_viewProj, float4(positions[index], 0.0f, 1.0f));
     o.color = colors[index];
 
 	return o;
