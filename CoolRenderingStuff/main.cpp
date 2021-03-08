@@ -51,6 +51,37 @@ struct GraphicsPipeline {
 	}
 };
 
+struct GeometryBuffer {
+	enum Buffer {
+		POSITION,
+		NORMAL,
+		ALBEDO,
+		MAX_BUFFER,
+	};
+
+	const DXGI_FORMAT formats[MAX_BUFFER] = {
+		DXGI_FORMAT_R16G16B16A16_FLOAT,
+		DXGI_FORMAT_R16G16B16A16_UNORM,
+		DXGI_FORMAT_R8G8B8A8_UNORM_SRGB,
+	};
+
+	ID3D11Texture2D* textures[MAX_BUFFER];
+	ID3D11RenderTargetView* textureViews[MAX_BUFFER];
+	ID3D11ShaderResourceView* textureResourceViews[MAX_BUFFER];
+
+	~GeometryBuffer() {
+		for (size_t i = 0; i < MAX_BUFFER; i++) {
+			textureResourceViews[i]->Release();
+			textureViews[i]->Release();
+			textures[i]->Release();
+		}
+	}
+
+	void bind(ID3D11DeviceContext* context, ID3D11DepthStencilView* depthStencilView = nullptr) {
+		context->OMSetRenderTargets(MAX_BUFFER, textureViews, depthStencilView);
+	}
+};
+
 struct PerFrameUniforms {
 	DirectX::XMMATRIX view;
 	DirectX::XMMATRIX viewProj;
@@ -124,15 +155,17 @@ private:
 	uint32_t numSwapChainBuffers;
 	IDXGISwapChain* swapChain;
 	DXGI_FORMAT swapChainFormat = DXGI_FORMAT_UNKNOWN;
-	GraphicsPipeline* graphicsPipeline;
 
-	ID3D11Texture2D* multisampleTexture;
-	ID3D11RenderTargetView* multisampleRTV;
+	GraphicsPipeline deferredGraphicsPipeline;
+	GraphicsPipeline lightingGraphicsPipeline;
 
-	bool useMultisampling = true;
-	DXGI_FORMAT multisampleFormat = DXGI_FORMAT_UNKNOWN;
-	uint32_t multisampleCount = 4;
-	int multisampleQuality = D3D11_STANDARD_MULTISAMPLE_PATTERN;
+	//ID3D11Texture2D* multisampleTexture;
+	//ID3D11RenderTargetView* multisampleRTV;
+
+	//bool useMultisampling = true;
+	//DXGI_FORMAT multisampleFormat = DXGI_FORMAT_UNKNOWN;
+	//uint32_t multisampleCount = 4;
+	//int multisampleQuality = D3D11_STANDARD_MULTISAMPLE_PATTERN;
 
 	float yaw;
 	float pitch;
@@ -140,19 +173,22 @@ private:
 	ID3D11Buffer* perFrameUniformsBuffer;
 	PerFrameUniforms perFrameUniforms;
 
+	ID3D11SamplerState* gbufferSampler;
+	GeometryBuffer geometryBuffer;
+
 public:
 	Application() {
 		createWindow();
 		createDeviceAndSwapChain();
-		createGraphicsPipeline();
+		createDeferredGraphicsPipeline();
+		createLightingGraphicsPipeline();
 		createConstantBuffers();
+		createGbuffers();
 	}
 
 	~Application() {
-		delete graphicsPipeline;
-
-		multisampleRTV->Release();
-		multisampleTexture->Release();
+		//multisampleRTV->Release();
+		//multisampleTexture->Release();
 
 		swapChain->Release();
 		context->Release();
@@ -216,7 +252,7 @@ private:
 
 		numSwapChainBuffers = 2;
 		swapChainFormat = DXGI_FORMAT_B8G8R8A8_UNORM;
-		multisampleFormat = DXGI_FORMAT_B8G8R8A8_UNORM_SRGB;
+		//multisampleFormat = DXGI_FORMAT_B8G8R8A8_UNORM_SRGB;
 
 		HWND hwnd = glfwGetWin32Window(window);
 
@@ -258,39 +294,39 @@ private:
 			throw std::runtime_error(error.str());
 		}
 
-		D3D11_TEXTURE2D_DESC msDesc{};
-		msDesc.Width = width;
-		msDesc.Height = height;
-		msDesc.MipLevels = 1;
-		msDesc.ArraySize = 1;
-		msDesc.Format = multisampleFormat;
-		msDesc.SampleDesc.Count = multisampleCount;
-		msDesc.SampleDesc.Quality = multisampleQuality;
-		msDesc.Usage = D3D11_USAGE_DEFAULT;
-		msDesc.BindFlags = D3D11_BIND_RENDER_TARGET;
-		msDesc.CPUAccessFlags = 0;
-		msDesc.MiscFlags = 0;
+		//D3D11_TEXTURE2D_DESC msDesc{};
+		//msDesc.Width = width;
+		//msDesc.Height = height;
+		//msDesc.MipLevels = 1;
+		//msDesc.ArraySize = 1;
+		//msDesc.Format = multisampleFormat;
+		//msDesc.SampleDesc.Count = multisampleCount;
+		//msDesc.SampleDesc.Quality = multisampleQuality;
+		//msDesc.Usage = D3D11_USAGE_DEFAULT;
+		//msDesc.BindFlags = D3D11_BIND_RENDER_TARGET;
+		//msDesc.CPUAccessFlags = 0;
+		//msDesc.MiscFlags = 0;
 
-		device->CreateTexture2D(&msDesc, nullptr, &multisampleTexture);
+		//device->CreateTexture2D(&msDesc, nullptr, &multisampleTexture);
 
-		if (!multisampleTexture) {
-			throw std::runtime_error("Failed to create multisample texture!");
-		}
+		//if (!multisampleTexture) {
+		//	throw std::runtime_error("Failed to create multisample texture!");
+		//}
 
-		D3D11_RENDER_TARGET_VIEW_DESC msRTVDesc{};
-		msRTVDesc.Format = multisampleFormat;
-		msRTVDesc.ViewDimension = D3D11_RTV_DIMENSION_TEXTURE2DMS;
+		//D3D11_RENDER_TARGET_VIEW_DESC msRTVDesc{};
+		//msRTVDesc.Format = multisampleFormat;
+		//msRTVDesc.ViewDimension = D3D11_RTV_DIMENSION_TEXTURE2DMS;
 
-		device->CreateRenderTargetView(multisampleTexture, &msRTVDesc, &multisampleRTV);
+		//device->CreateRenderTargetView(multisampleTexture, &msRTVDesc, &multisampleRTV);
 
-		if (!multisampleRTV) {
-			throw std::runtime_error("Failed to create multisample RTV!");
-		}
+		//if (!multisampleRTV) {
+		//	throw std::runtime_error("Failed to create multisample RTV!");
+		//}
 	}
 
-	void createGraphicsPipeline() {
-		std::vector<char> vertexShaderCode = readFile("shaders/vertex.cso");
-		std::vector<char> pixelShaderCode = readFile("shaders/pixel.cso");
+	void createDeferredGraphicsPipeline() {
+		std::vector<char> vertexShaderCode = readFile("shaders/deferredVertex.cso");
+		std::vector<char> pixelShaderCode = readFile("shaders/deferredPixel.cso");
 
 		ID3D11VertexShader* vertexShader;
 		ID3D11PixelShader* pixelShader;
@@ -307,7 +343,7 @@ private:
 		rasterizerDesc.SlopeScaledDepthBias = 0;
 		rasterizerDesc.DepthClipEnable = false;
 		rasterizerDesc.ScissorEnable = true;
-		rasterizerDesc.MultisampleEnable = useMultisampling;
+		rasterizerDesc.MultisampleEnable = false; //useMultisampling;
 		rasterizerDesc.AntialiasedLineEnable = false;
 
 		ID3D11RasterizerState* rasterizerState;
@@ -330,13 +366,82 @@ private:
 		scissor.right = width;
 		scissor.bottom = height;
 
-		graphicsPipeline = new GraphicsPipeline();
-		graphicsPipeline->primitiveTopology = D3D11_PRIMITIVE_TOPOLOGY_TRIANGLELIST;
-		graphicsPipeline->vertexShader = vertexShader;
-		graphicsPipeline->rasterizerState = rasterizerState;
-		graphicsPipeline->pixelShader = pixelShader;
-		graphicsPipeline->viewport = viewport;
-		graphicsPipeline->scissor = scissor;
+		deferredGraphicsPipeline.primitiveTopology = D3D11_PRIMITIVE_TOPOLOGY_TRIANGLELIST;
+		deferredGraphicsPipeline.vertexShader = vertexShader;
+		deferredGraphicsPipeline.rasterizerState = rasterizerState;
+		deferredGraphicsPipeline.pixelShader = pixelShader;
+		deferredGraphicsPipeline.viewport = viewport;
+		deferredGraphicsPipeline.scissor = scissor;
+	}
+
+	void createLightingGraphicsPipeline() {
+		std::vector<char> vertexShaderCode = readFile("shaders/lightAccVertex.cso");
+		std::vector<char> pixelShaderCode = readFile("shaders/lightAccPixel.cso");
+
+		ID3D11VertexShader* vertexShader;
+		ID3D11PixelShader* pixelShader;
+
+		device->CreateVertexShader(vertexShaderCode.data(), vertexShaderCode.size(), nullptr, &vertexShader);
+		device->CreatePixelShader(pixelShaderCode.data(), pixelShaderCode.size(), nullptr, &pixelShader);
+
+		D3D11_RASTERIZER_DESC rasterizerDesc{};
+		rasterizerDesc.FillMode = D3D11_FILL_SOLID;
+		rasterizerDesc.CullMode = D3D11_CULL_BACK;
+		rasterizerDesc.FrontCounterClockwise = false;
+		rasterizerDesc.DepthBias = 0;
+		rasterizerDesc.DepthBiasClamp = 0;
+		rasterizerDesc.SlopeScaledDepthBias = 0;
+		rasterizerDesc.DepthClipEnable = false;
+		rasterizerDesc.ScissorEnable = true;
+		rasterizerDesc.MultisampleEnable = false; //useMultisampling;
+		rasterizerDesc.AntialiasedLineEnable = false;
+
+		ID3D11RasterizerState* rasterizerState;
+		device->CreateRasterizerState(&rasterizerDesc, &rasterizerState);
+
+		int width, height;
+		glfwGetWindowSize(window, &width, &height);
+
+		D3D11_VIEWPORT viewport{};
+		viewport.TopLeftX = 0.0f;
+		viewport.TopLeftY = 0.0f;
+		viewport.Width = static_cast<float>(width);
+		viewport.Height = static_cast<float>(height);
+		viewport.MinDepth = 0.0f;
+		viewport.MaxDepth = 1.0f;
+
+		D3D11_RECT scissor{};
+		scissor.left = 0;
+		scissor.top = 0;
+		scissor.right = width;
+		scissor.bottom = height;
+
+		lightingGraphicsPipeline.primitiveTopology = D3D11_PRIMITIVE_TOPOLOGY_TRIANGLESTRIP;
+		lightingGraphicsPipeline.vertexShader = vertexShader;
+		lightingGraphicsPipeline.rasterizerState = rasterizerState;
+		lightingGraphicsPipeline.pixelShader = pixelShader;
+		lightingGraphicsPipeline.viewport = viewport;
+		lightingGraphicsPipeline.scissor = scissor;
+
+		float borderColor[] = { 0.0f, 0.0f, 0.0f, 0.0f };
+		D3D11_SAMPLER_DESC samplerDesc{};
+		samplerDesc.Filter = D3D11_FILTER_MIN_MAG_MIP_POINT;
+		samplerDesc.AddressU = D3D11_TEXTURE_ADDRESS_CLAMP;
+		samplerDesc.AddressV = D3D11_TEXTURE_ADDRESS_CLAMP;
+		samplerDesc.AddressW = D3D11_TEXTURE_ADDRESS_CLAMP;
+		samplerDesc.MipLODBias = 0.0f;
+		samplerDesc.MaxAnisotropy = 1;
+		samplerDesc.ComparisonFunc = D3D11_COMPARISON_ALWAYS;
+		samplerDesc.BorderColor[0] = 0.0f;
+		samplerDesc.BorderColor[1] = 0.0f;
+		samplerDesc.BorderColor[2] = 0.0f;
+		samplerDesc.BorderColor[3] = 0.0f;
+		samplerDesc.MinLOD = 0.0f;
+		samplerDesc.MaxLOD = D3D11_FLOAT32_MAX;
+
+		if (FAILED(device->CreateSamplerState(&samplerDesc, &gbufferSampler))) {
+			throw std::runtime_error("Failed to create gbuffer sampler");
+		}
 	}
 
 	void createConstantBuffers() {
@@ -350,6 +455,57 @@ private:
 
 		if (FAILED(device->CreateBuffer(&desc, nullptr, &perFrameUniformsBuffer))) {
 			throw std::runtime_error("Failed to create cbuffer!");
+		}
+	}
+
+	void createGbuffers() {
+		int32_t width, height;
+		glfwGetWindowSize(window, &width, &height);
+
+		for (size_t i = 0; i < GeometryBuffer::MAX_BUFFER; i++) {
+			D3D11_TEXTURE2D_DESC textureDesc{};
+			textureDesc.Width = width;
+			textureDesc.Height = height;
+			textureDesc.MipLevels = 1;
+			textureDesc.ArraySize = 1;
+			textureDesc.Format = geometryBuffer.formats[i];
+			
+			//if (useMultisampling) {
+			//	textureDesc.SampleDesc.Count = multisampleCount;
+			//	textureDesc.SampleDesc.Quality = multisampleQuality;
+			//}
+			//else {
+			//}
+			textureDesc.SampleDesc.Count = 1;
+			textureDesc.SampleDesc.Quality = 0;
+
+			textureDesc.Usage = D3D11_USAGE_DEFAULT;
+			textureDesc.BindFlags = D3D11_BIND_SHADER_RESOURCE | D3D11_BIND_RENDER_TARGET;
+			textureDesc.CPUAccessFlags = 0;
+			textureDesc.MiscFlags = 0;
+
+			if (FAILED(device->CreateTexture2D(&textureDesc, nullptr, &geometryBuffer.textures[i]))) {
+				throw std::runtime_error("Failed to create gbuffer texture!");
+			}
+
+			D3D11_RENDER_TARGET_VIEW_DESC rtvDesc{};
+			rtvDesc.Format = geometryBuffer.formats[i];
+			rtvDesc.ViewDimension = D3D11_RTV_DIMENSION_TEXTURE2D;
+			rtvDesc.Texture2D.MipSlice = 0;
+
+			if (FAILED(device->CreateRenderTargetView(geometryBuffer.textures[i], &rtvDesc, &geometryBuffer.textureViews[i]))) {
+				throw std::runtime_error("Failed to create gbuffer RTV!");
+			}
+
+			D3D11_SHADER_RESOURCE_VIEW_DESC srvDesc{};
+			srvDesc.Format = geometryBuffer.formats[i];
+			srvDesc.ViewDimension = D3D11_SRV_DIMENSION_TEXTURE2D;
+			srvDesc.Texture2D.MipLevels = 1;
+			srvDesc.Texture2D.MostDetailedMip = 0;
+
+			if (FAILED(device->CreateShaderResourceView(geometryBuffer.textures[i], &srvDesc, &geometryBuffer.textureResourceViews[i]))) {
+				throw std::runtime_error("Failed to create gbuffer SRV!");
+			}
 		}
 	}
 
@@ -371,16 +527,21 @@ private:
 	}
 
 	void drawFrame() {
-		graphicsPipeline->bind(context);
-
-		float clearColor[4] = { 0.0f, 0.0f, 0.0f, 1.0f };
-		context->ClearRenderTargetView(multisampleRTV, clearColor);
-		context->OMSetRenderTargets(1, &multisampleRTV, nullptr);
+		deferredGraphicsPipeline.bind(context);
+		//context->ClearRenderTargetView(multisampleRTV, clearColor);
+		//context->OMSetRenderTargets(1, &multisampleRTV, nullptr);
 
 		D3D11_MAPPED_SUBRESOURCE mapped{};
 		context->Map(perFrameUniformsBuffer, 0, D3D11_MAP_WRITE_DISCARD, 0, &mapped);
 		memcpy(mapped.pData, &perFrameUniforms, sizeof(PerFrameUniforms));
 		context->Unmap(perFrameUniformsBuffer, 0);
+
+		float clearColor[4] = { 0.0f, 0.0f, 0.0f, 1.0f };
+		for (size_t i = 0; i < GeometryBuffer::MAX_BUFFER; i++)
+		{
+			context->ClearRenderTargetView(geometryBuffer.textureViews[i], clearColor);
+		}
+		context->OMSetRenderTargets(GeometryBuffer::MAX_BUFFER, geometryBuffer.textureViews, nullptr);
 
 		// Drawing happens here.
 
@@ -394,42 +555,69 @@ private:
 			throw std::runtime_error("Failed to get a back buffer!");
 		}
 
-		context->ResolveSubresource(backBuffer, 0, multisampleTexture, 0, swapChainFormat);
+		ID3D11RenderTargetView* renderTarget;
+
+		D3D11_RENDER_TARGET_VIEW_DESC rtvDesc{};
+		rtvDesc.Format = swapChainFormat;
+		rtvDesc.ViewDimension = D3D11_RTV_DIMENSION_TEXTURE2D;
+		rtvDesc.Texture2D.MipSlice = 0;
+
+		if (FAILED(device->CreateRenderTargetView(backBuffer, &rtvDesc, &renderTarget))) {
+			throw std::runtime_error("Failed to create backbuffer RTV!");
+		}
 
 		backBuffer->Release();
 
+		context->ClearRenderTargetView(renderTarget, clearColor);
+		context->OMSetRenderTargets(1, &renderTarget, nullptr);
+
+		lightingGraphicsPipeline.bind(context);
+		context->PSSetShaderResources(0, GeometryBuffer::MAX_BUFFER, geometryBuffer.textureResourceViews);
+
+		// Draw light mesh
+		context->Draw(4, 0);
+
+		ID3D11ShaderResourceView* nullSRVs[GeometryBuffer::MAX_BUFFER];
+		memset(nullSRVs, 0, sizeof(nullSRVs));
+		context->PSSetShaderResources(0, GeometryBuffer::MAX_BUFFER, nullSRVs);
+
+		context->PSSetSamplers(0, 1, &gbufferSampler);
+
+		//context->ResolveSubresource(backBuffer, 0, multisampleTexture, 0, swapChainFormat);
+
 		swapChain->Present(1, 0);
+		renderTarget->Release();
 	}
 
 	void OnWindowResized(uint32_t width, uint32_t height) {
 		swapChain->ResizeBuffers(numSwapChainBuffers, width, height, swapChainFormat, 0);
 
-		D3D11_TEXTURE2D_DESC textureDesc;
-		multisampleTexture->GetDesc(&textureDesc);
-		multisampleTexture->Release();
+		//D3D11_TEXTURE2D_DESC textureDesc;
+		//multisampleTexture->GetDesc(&textureDesc);
+		//multisampleTexture->Release();
 
-		D3D11_RENDER_TARGET_VIEW_DESC rtvDesc;
-		multisampleRTV->GetDesc(&rtvDesc);
-		multisampleRTV->Release();
+		//D3D11_RENDER_TARGET_VIEW_DESC rtvDesc;
+		//multisampleRTV->GetDesc(&rtvDesc);
+		//multisampleRTV->Release();
 
-		textureDesc.Width = width;
-		textureDesc.Height = height;
+		//textureDesc.Width = width;
+		//textureDesc.Height = height;
 
-		if (FAILED(device->CreateTexture2D(&textureDesc, nullptr, &multisampleTexture))) {
-			throw std::runtime_error("Failed to recreate multisample texture!");
-		}
-		assert(multisampleTexture);
+		//if (FAILED(device->CreateTexture2D(&textureDesc, nullptr, &multisampleTexture))) {
+		//	throw std::runtime_error("Failed to recreate multisample texture!");
+		//}
+		//assert(multisampleTexture);
 
-		if (FAILED(device->CreateRenderTargetView(multisampleTexture, &rtvDesc, &multisampleRTV))) {
-			throw std::runtime_error("Failed to recreate multisample texture RTV!");
-		}
-		assert(multisampleRTV);
+		//if (FAILED(device->CreateRenderTargetView(multisampleTexture, &rtvDesc, &multisampleRTV))) {
+		//	throw std::runtime_error("Failed to recreate multisample texture RTV!");
+		//}
+		//assert(multisampleRTV);
 
-		graphicsPipeline->viewport.Width = static_cast<float>(width);
-		graphicsPipeline->viewport.Height = static_cast<float>(height);
+		deferredGraphicsPipeline.viewport.Width = static_cast<float>(width);
+		deferredGraphicsPipeline.viewport.Height = static_cast<float>(height);
 
-		graphicsPipeline->scissor.right = width;
-		graphicsPipeline->scissor.bottom = height;
+		deferredGraphicsPipeline.scissor.right = width;
+		deferredGraphicsPipeline.scissor.bottom = height;
 	}
 };
 

@@ -21,9 +21,12 @@
   </ItemGroup>
   <ItemGroup>
     <None Include="shaders\common.hlsli" />
+    <None Include="shaders\lightAccCommon.hlsli" />
   </ItemGroup>
   <ItemGroup>
-    <FxCompile Include="shaders\pixel.hlsl" />
-    <FxCompile Include="shaders\vertex.hlsl" />
+    <FxCompile Include="shaders\deferredPixel.hlsl" />
+    <FxCompile Include="shaders\deferredVertex.hlsl" />
+    <FxCompile Include="shaders\lightAccVertex.hlsl" />
+    <FxCompile Include="shaders\lightAccPixel.hlsl" />
   </ItemGroup>
 </Project>

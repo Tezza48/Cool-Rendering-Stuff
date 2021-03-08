@@ -1,5 +1,6 @@
 struct VertToPixel {
 	float4 position: SV_POSITION;
+	float3 normalV: NORMAL;
 	float3 color: COLOR;
 };
 

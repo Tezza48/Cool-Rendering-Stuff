@@ -14,9 +14,12 @@ VertToPixel main(uint index: SV_VertexID)
         float3(0.0, 1.0, 0.0)
     };
 
+    float3 normal = mul(g_view, float3(0.0f, 0.0f, -1.0f));
+
     VertToPixel o;
     o.position = mul(g_viewProj, float4(positions[index], 0.0f, 1.0f));
     o.color = colors[index];
+    o.normalV = normal;
 
 	return o;
 }
