@@ -18,6 +18,9 @@
     <ClCompile Include="main.cpp">
       <Filter>Source Files</Filter>
     </ClCompile>
+    <ClCompile Include="GraphicsPipeline.cpp">
+      <Filter>Source Files</Filter>
+    </ClCompile>
   </ItemGroup>
   <ItemGroup>
     <None Include="shaders\common.hlsli" />
@@ -28,5 +31,10 @@
     <FxCompile Include="shaders\deferredVertex.hlsl" />
     <FxCompile Include="shaders\lightAccVertex.hlsl" />
     <FxCompile Include="shaders\lightAccPixel.hlsl" />
+  </ItemGroup>
+  <ItemGroup>
+    <ClInclude Include="GraphicsPipeline.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
   </ItemGroup>
 </Project>

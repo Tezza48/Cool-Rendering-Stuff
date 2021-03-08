@@ -16,40 +16,11 @@
 
 #include <DirectXMath.h>
 
+#include "GraphicsPipeline.h"
+
 using namespace DirectX;
 
 #define PI 3.1415927f
-
-struct GraphicsPipeline {
-	D3D_PRIMITIVE_TOPOLOGY primitiveTopology;
-
-	ID3D11VertexShader* vertexShader;
-	ID3D11RasterizerState* rasterizerState;
-	ID3D11PixelShader* pixelShader;
-
-	D3D11_VIEWPORT viewport;
-	D3D11_RECT scissor;
-
-	~GraphicsPipeline() {
-		vertexShader->Release();
-		rasterizerState->Release();
-		pixelShader->Release();
-	}
-
-	void bind(ID3D11DeviceContext* context) {
-		context->IASetPrimitiveTopology(primitiveTopology);
-
-		if (vertexShader)
-			context->VSSetShader(vertexShader, nullptr, 0);
-
-		context->RSSetState(rasterizerState);
-		context->RSSetViewports(1, &viewport);
-		context->RSSetScissorRects(1, &scissor);
-
-		if (pixelShader)
-			context->PSSetShader(pixelShader, nullptr, 0);
-	}
-};
 
 struct GeometryBuffer {
 	enum Buffer {
@@ -156,8 +127,8 @@ private:
 	IDXGISwapChain* swapChain;
 	DXGI_FORMAT swapChainFormat = DXGI_FORMAT_UNKNOWN;
 
-	GraphicsPipeline deferredGraphicsPipeline;
-	GraphicsPipeline lightingGraphicsPipeline;
+	GraphicsPipeline *deferredGraphicsPipeline;
+	GraphicsPipeline *lightingGraphicsPipeline;
 
 	//ID3D11Texture2D* multisampleTexture;
 	//ID3D11RenderTargetView* multisampleRTV;
@@ -187,6 +158,9 @@ public:
 	}
 
 	~Application() {
+		delete lightingGraphicsPipeline;
+		delete deferredGraphicsPipeline;
+
 		//multisampleRTV->Release();
 		//multisampleTexture->Release();
 
@@ -328,12 +302,6 @@ private:
 		std::vector<char> vertexShaderCode = readFile("shaders/deferredVertex.cso");
 		std::vector<char> pixelShaderCode = readFile("shaders/deferredPixel.cso");
 
-		ID3D11VertexShader* vertexShader;
-		ID3D11PixelShader* pixelShader;
-
-		device->CreateVertexShader(vertexShaderCode.data(), vertexShaderCode.size(), nullptr, &vertexShader);
-		device->CreatePixelShader(pixelShaderCode.data(), pixelShaderCode.size(), nullptr, &pixelShader);
-
 		D3D11_RASTERIZER_DESC rasterizerDesc{};
 		rasterizerDesc.FillMode = D3D11_FILL_SOLID;
 		rasterizerDesc.CullMode = D3D11_CULL_BACK;
@@ -345,9 +313,6 @@ private:
 		rasterizerDesc.ScissorEnable = true;
 		rasterizerDesc.MultisampleEnable = false; //useMultisampling;
 		rasterizerDesc.AntialiasedLineEnable = false;
-
-		ID3D11RasterizerState* rasterizerState;
-		device->CreateRasterizerState(&rasterizerDesc, &rasterizerState);
 
 		int width, height;
 		glfwGetWindowSize(window, &width, &height);
@@ -366,24 +331,21 @@ private:
 		scissor.right = width;
 		scissor.bottom = height;
 
-		deferredGraphicsPipeline.primitiveTopology = D3D11_PRIMITIVE_TOPOLOGY_TRIANGLELIST;
-		deferredGraphicsPipeline.vertexShader = vertexShader;
-		deferredGraphicsPipeline.rasterizerState = rasterizerState;
-		deferredGraphicsPipeline.pixelShader = pixelShader;
-		deferredGraphicsPipeline.viewport = viewport;
-		deferredGraphicsPipeline.scissor = scissor;
+		deferredGraphicsPipeline = new GraphicsPipeline(
+			device,
+			vertexShaderCode,
+			pixelShaderCode,
+			rasterizerDesc,
+			D3D11_PRIMITIVE_TOPOLOGY_TRIANGLELIST,
+			viewport,
+			scissor
+		);
 	}
 
 	void createLightingGraphicsPipeline() {
 		std::vector<char> vertexShaderCode = readFile("shaders/lightAccVertex.cso");
 		std::vector<char> pixelShaderCode = readFile("shaders/lightAccPixel.cso");
 
-		ID3D11VertexShader* vertexShader;
-		ID3D11PixelShader* pixelShader;
-
-		device->CreateVertexShader(vertexShaderCode.data(), vertexShaderCode.size(), nullptr, &vertexShader);
-		device->CreatePixelShader(pixelShaderCode.data(), pixelShaderCode.size(), nullptr, &pixelShader);
-
 		D3D11_RASTERIZER_DESC rasterizerDesc{};
 		rasterizerDesc.FillMode = D3D11_FILL_SOLID;
 		rasterizerDesc.CullMode = D3D11_CULL_BACK;
@@ -395,9 +357,6 @@ private:
 		rasterizerDesc.ScissorEnable = true;
 		rasterizerDesc.MultisampleEnable = false; //useMultisampling;
 		rasterizerDesc.AntialiasedLineEnable = false;
-
-		ID3D11RasterizerState* rasterizerState;
-		device->CreateRasterizerState(&rasterizerDesc, &rasterizerState);
 
 		int width, height;
 		glfwGetWindowSize(window, &width, &height);
@@ -416,14 +375,16 @@ private:
 		scissor.right = width;
 		scissor.bottom = height;
 
-		lightingGraphicsPipeline.primitiveTopology = D3D11_PRIMITIVE_TOPOLOGY_TRIANGLESTRIP;
-		lightingGraphicsPipeline.vertexShader = vertexShader;
-		lightingGraphicsPipeline.rasterizerState = rasterizerState;
-		lightingGraphicsPipeline.pixelShader = pixelShader;
-		lightingGraphicsPipeline.viewport = viewport;
-		lightingGraphicsPipeline.scissor = scissor;
+		lightingGraphicsPipeline = new GraphicsPipeline(
+			device,
+			vertexShaderCode,
+			pixelShaderCode,
+			rasterizerDesc,
+			D3D11_PRIMITIVE_TOPOLOGY_TRIANGLESTRIP,
+			viewport,
+			scissor
+		);
 
-		float borderColor[] = { 0.0f, 0.0f, 0.0f, 0.0f };
 		D3D11_SAMPLER_DESC samplerDesc{};
 		samplerDesc.Filter = D3D11_FILTER_MIN_MAG_MIP_POINT;
 		samplerDesc.AddressU = D3D11_TEXTURE_ADDRESS_CLAMP;
@@ -527,7 +488,7 @@ private:
 	}
 
 	void drawFrame() {
-		deferredGraphicsPipeline.bind(context);
+		deferredGraphicsPipeline->bind(context);
 		//context->ClearRenderTargetView(multisampleRTV, clearColor);
 		//context->OMSetRenderTargets(1, &multisampleRTV, nullptr);
 
@@ -571,7 +532,7 @@ private:
 		context->ClearRenderTargetView(renderTarget, clearColor);
 		context->OMSetRenderTargets(1, &renderTarget, nullptr);
 
-		lightingGraphicsPipeline.bind(context);
+		lightingGraphicsPipeline->bind(context);
 		context->PSSetShaderResources(0, GeometryBuffer::MAX_BUFFER, geometryBuffer.textureResourceViews);
 
 		// Draw light mesh
@@ -613,11 +574,11 @@ private:
 		//}
 		//assert(multisampleRTV);
 
-		deferredGraphicsPipeline.viewport.Width = static_cast<float>(width);
-		deferredGraphicsPipeline.viewport.Height = static_cast<float>(height);
+		deferredGraphicsPipeline->viewport.Width = static_cast<float>(width);
+		deferredGraphicsPipeline->viewport.Height = static_cast<float>(height);
 
-		deferredGraphicsPipeline.scissor.right = width;
-		deferredGraphicsPipeline.scissor.bottom = height;
+		deferredGraphicsPipeline->scissor.right = width;
+		deferredGraphicsPipeline->scissor.bottom = height;
 	}
 };
 
