@@ -1,3 +1,4 @@
+#define NOMINMAX
 #include <d3d11_4.h>
 #include <dxgi.h>
 
@@ -18,9 +19,21 @@
 
 #include "GraphicsPipeline.h"
 
+#include <assimp/Importer.hpp>
+#include <assimp/scene.h>
+#include <assimp/postprocess.h>
+
 using namespace DirectX;
 
 #define PI 3.1415927f
+
+struct Vertex {
+	XMFLOAT3 position;
+	XMFLOAT3 normal;
+	XMFLOAT3 tangent;
+	XMFLOAT3 bitangent;
+	XMFLOAT2 texcoord;
+};
 
 struct GeometryBuffer {
 	enum Buffer {
@@ -53,6 +66,14 @@ struct GeometryBuffer {
 	}
 };
 
+struct Mesh {
+	size_t numVertices;
+	ID3D11Buffer* vertices;
+
+	size_t indexCount;
+	ID3D11Buffer* indices;
+};
+
 struct PerFrameUniforms {
 	DirectX::XMMATRIX view;
 	DirectX::XMMATRIX viewProj;
@@ -75,8 +96,8 @@ public:
 		glfwGetWindowSize(window, &width, &height);
 
 		static bool isFirstTime = true;
-		static float lastX = 0.0f;
-		static float lastY = 0.0f;
+		static double lastX = 0.0f;
+		static double lastY = 0.0f;
 
 		auto app = reinterpret_cast<Application*>(glfwGetWindowUserPointer(window));
 
@@ -88,8 +109,8 @@ public:
 
 		float extent = PI - 0.01f;
 
-		app->yaw += (static_cast<float>(x) - lastX) / width;
-		app->pitch += (static_cast<float>(y) - lastY) / height;
+		app->yaw += static_cast<float>(x - lastX) / width;
+		app->pitch += static_cast<float>(y - lastY) / height;
 
 		app->yaw = std::fmodf(app->yaw, PI * 2.0f);
 		app->pitch = std::fmaxf(-extent, std::fminf(extent, app->pitch));
@@ -130,6 +151,9 @@ private:
 	GraphicsPipeline *deferredGraphicsPipeline;
 	GraphicsPipeline *lightingGraphicsPipeline;
 
+	ID3D11Texture2D* depthTexture;
+	ID3D11DepthStencilView* depthStencilView;
+
 	//ID3D11Texture2D* multisampleTexture;
 	//ID3D11RenderTargetView* multisampleRTV;
 
@@ -147,6 +171,13 @@ private:
 	ID3D11SamplerState* gbufferSampler;
 	GeometryBuffer geometryBuffer;
 
+	//ID3D11Buffer* vertices;
+	//ID3D11Buffer* indices;
+	//size_t numIndices;
+
+	// TODO WT: Release in cleanup
+	std::vector<Mesh> loadedMesh;
+
 public:
 	Application() {
 		createWindow();
@@ -155,6 +186,125 @@ public:
 		createLightingGraphicsPipeline();
 		createConstantBuffers();
 		createGbuffers();
+
+		//Vertex verts[4];
+
+		//verts[0] = { {-1.0f, -1.0f, 0.0f} };
+		//verts[1] = { {-1.0f, 1.0f, 0.0f} };
+		//verts[2] = { {1.0f, 1.0f, 0.0f} };
+		//verts[3] = { {1.0f, -1.0f, 0.0f} };
+
+		//unsigned int idxs[6] = {
+		//	0, 1, 2, 0, 2, 3
+		//};
+
+
+		//D3D11_BUFFER_DESC vDesc = {};
+		//vDesc.Usage = D3D11_USAGE_DEFAULT;
+		//vDesc.ByteWidth = sizeof(Vertex) * 4;
+		//vDesc.BindFlags = D3D11_BIND_VERTEX_BUFFER;
+		//vDesc.CPUAccessFlags = 0;
+		//vDesc.MiscFlags = 0;
+		//vDesc.StructureByteStride = 0;
+
+		//D3D11_SUBRESOURCE_DATA vertData{};
+		//vertData.pSysMem = verts;
+
+		//numIndices = 6;
+		//D3D11_BUFFER_DESC iDesc = {};
+		//iDesc.Usage = D3D11_USAGE_DEFAULT;
+		//iDesc.ByteWidth = sizeof(unsigned int) * 6;
+		//iDesc.BindFlags = D3D11_BIND_INDEX_BUFFER;
+		//iDesc.CPUAccessFlags = 0;
+		//iDesc.MiscFlags = 0;
+		//iDesc.StructureByteStride = 0;
+
+		//D3D11_SUBRESOURCE_DATA indexData{};
+		//indexData.pSysMem = idxs;
+
+		//device->CreateBuffer(&vDesc, &vertData, &vertices);
+		//device->CreateBuffer(&iDesc, &indexData, &indices);
+
+
+		Assimp::Importer* importer = new Assimp::Importer();
+
+		const aiScene* scene = importer->ReadFile("assets/crytekSponza/sponza.obj", aiProcess_CalcTangentSpace | aiProcess_Triangulate);
+
+		//std::vector<aiMaterial*> materials(scene->mMaterials, scene->mMaterials + scene->mNumMaterials);
+		std::vector<aiMesh*> meshes(scene->mMeshes, scene->mMeshes + scene->mNumMeshes);
+
+		loadedMesh.resize(scene->mNumMeshes);
+
+		for (size_t i = 0; i <  scene->mNumMeshes; i++) {
+			Mesh& mesh = loadedMesh[i];
+			aiMesh* data = meshes[i];
+
+			std::vector<Vertex> vertices(data->mNumVertices);
+			for (size_t v = 0; v < data->mNumVertices; v++) {
+				auto pos = data->mVertices[v];
+				auto normal = data->mNormals[v];
+				auto tangent = data->mTangents[v];
+				auto bitangent = data->mBitangents[v];
+				aiVector3D uv;
+				if (data->mTextureCoords) {
+					uv = data->mTextureCoords[0][v];
+				}
+
+				vertices[v] = {
+					{ pos.x / 100.0f, pos.y / 100.0f, pos.z / 100.0f },
+					{ normal.x, normal.y, normal.z },
+					{ tangent.x, tangent.y, tangent.z },
+					{ bitangent.x, bitangent.y, bitangent.z },
+					{ uv.x, uv.y }
+				};
+			}
+
+			D3D11_BUFFER_DESC vDesc = {};
+			vDesc.Usage = D3D11_USAGE_DEFAULT;
+			vDesc.ByteWidth = sizeof(Vertex) * data->mNumVertices;
+			vDesc.BindFlags = D3D11_BIND_VERTEX_BUFFER;
+			vDesc.CPUAccessFlags = 0;
+			vDesc.MiscFlags = 0;
+			vDesc.StructureByteStride = 0;
+
+			D3D11_SUBRESOURCE_DATA vertData{};
+			vertData.pSysMem = vertices.data();
+
+			mesh.numVertices = data->mNumVertices;
+			auto vbHR = device->CreateBuffer(&vDesc, &vertData, &mesh.vertices);
+
+			assert(SUCCEEDED(vbHR));
+
+			std::vector<unsigned int> indices;
+
+			// TODO WT: init indices at correct size and set elems instead of push
+			for (size_t f = 0; f < data->mNumFaces; f++)
+			{
+				indices.push_back(data->mFaces[f].mIndices[0]);
+				indices.push_back(data->mFaces[f].mIndices[1]);
+				indices.push_back(data->mFaces[f].mIndices[2]);
+			}
+
+			D3D11_BUFFER_DESC iDesc = {};
+			iDesc.Usage = D3D11_USAGE_DEFAULT;
+			iDesc.ByteWidth = sizeof(unsigned int) * indices.size();
+			iDesc.BindFlags = D3D11_BIND_INDEX_BUFFER;
+			iDesc.CPUAccessFlags = 0;
+			iDesc.MiscFlags = 0;
+			iDesc.StructureByteStride = 0;
+
+			D3D11_SUBRESOURCE_DATA indexData{};
+			indexData.pSysMem = indices.data();
+
+			mesh.indexCount = indices.size();
+			auto ibHF = device->CreateBuffer(&iDesc, &indexData, &mesh.indices);
+
+			assert(SUCCEEDED(vbHR));
+		}
+
+		importer->FreeScene();
+
+		delete importer;
 	}
 
 	~Application() {
@@ -268,6 +418,32 @@ private:
 			throw std::runtime_error(error.str());
 		}
 
+		// TODO WT: Resize depth texture
+		D3D11_TEXTURE2D_DESC depthTextureDesc;
+		depthTextureDesc.Width = width;
+		depthTextureDesc.Height = height;
+		depthTextureDesc.MipLevels = 1;
+		depthTextureDesc.ArraySize = 1;
+		depthTextureDesc.Format = DXGI_FORMAT_D24_UNORM_S8_UINT;
+		depthTextureDesc.SampleDesc.Count = 1;
+		depthTextureDesc.SampleDesc.Quality = 0;
+		depthTextureDesc.Usage = D3D11_USAGE_DEFAULT;
+		depthTextureDesc.BindFlags = D3D11_BIND_DEPTH_STENCIL;
+		depthTextureDesc.CPUAccessFlags = 0;
+		depthTextureDesc.MiscFlags = 0;
+
+		if (FAILED(device->CreateTexture2D(&depthTextureDesc, nullptr, &depthTexture))) {
+			throw std::runtime_error("Failed to create depth texture!");
+		}
+
+		D3D11_DEPTH_STENCIL_VIEW_DESC dsvDesc = {};
+		dsvDesc.Format = depthTextureDesc.Format;
+		dsvDesc.ViewDimension = D3D11_DSV_DIMENSION_TEXTURE2D;
+		dsvDesc.Texture2D.MipSlice = 0;
+
+		hr = device->CreateDepthStencilView(depthTexture, &dsvDesc, &depthStencilView);
+		assert(SUCCEEDED(hr));
+
 		//D3D11_TEXTURE2D_DESC msDesc{};
 		//msDesc.Width = width;
 		//msDesc.Height = height;
@@ -331,11 +507,38 @@ private:
 		scissor.right = width;
 		scissor.bottom = height;
 
+		std::vector<D3D11_INPUT_ELEMENT_DESC> inputs(5);
+		inputs[0] = { "POSITION", 0, DXGI_FORMAT_R32G32B32_FLOAT, 0, offsetof(Vertex, position), D3D11_INPUT_PER_VERTEX_DATA, 0 };
+		inputs[1] = { "NORMAL", 0, DXGI_FORMAT_R32G32B32_FLOAT, 0, offsetof(Vertex, normal), D3D11_INPUT_PER_VERTEX_DATA, 0 };
+		inputs[2] = { "TANGENT", 0, DXGI_FORMAT_R32G32B32_FLOAT, 0, offsetof(Vertex, tangent), D3D11_INPUT_PER_VERTEX_DATA, 0 };
+		inputs[3] = { "BINORMAL", 0, DXGI_FORMAT_R32G32B32_FLOAT, 0, offsetof(Vertex, bitangent), D3D11_INPUT_PER_VERTEX_DATA, 0 };
+		inputs[4] = { "TEXCOORD", 0, DXGI_FORMAT_R32G32_FLOAT, 0, offsetof(Vertex, texcoord), D3D11_INPUT_PER_VERTEX_DATA, 0 };
+
+		D3D11_DEPTH_STENCIL_DESC depthStencilDesc{};
+		depthStencilDesc.DepthEnable = true;
+		depthStencilDesc.DepthWriteMask = D3D11_DEPTH_WRITE_MASK_ALL;
+		depthStencilDesc.DepthFunc = D3D11_COMPARISON_LESS;
+		depthStencilDesc.StencilEnable = false;
+		depthStencilDesc.StencilWriteMask = D3D11_DEFAULT_STENCIL_WRITE_MASK;
+		depthStencilDesc.StencilReadMask = D3D11_DEFAULT_STENCIL_READ_MASK;
+
+		depthStencilDesc.FrontFace.StencilFailOp = D3D11_STENCIL_OP_KEEP;
+		depthStencilDesc.FrontFace.StencilDepthFailOp = D3D11_STENCIL_OP_INCR;
+		depthStencilDesc.FrontFace.StencilPassOp = D3D11_STENCIL_OP_KEEP;
+		depthStencilDesc.FrontFace.StencilFunc = D3D11_COMPARISON_ALWAYS;
+
+		depthStencilDesc.BackFace.StencilFailOp = D3D11_STENCIL_OP_KEEP;
+		depthStencilDesc.BackFace.StencilDepthFailOp = D3D11_STENCIL_OP_INCR;
+		depthStencilDesc.BackFace.StencilPassOp = D3D11_STENCIL_OP_KEEP;
+		depthStencilDesc.BackFace.StencilFunc = D3D11_COMPARISON_ALWAYS;
+
 		deferredGraphicsPipeline = new GraphicsPipeline(
 			device,
 			vertexShaderCode,
 			pixelShaderCode,
+			std::make_optional(inputs),
 			rasterizerDesc,
+			depthStencilDesc,
 			D3D11_PRIMITIVE_TOPOLOGY_TRIANGLELIST,
 			viewport,
 			scissor
@@ -375,11 +578,31 @@ private:
 		scissor.right = width;
 		scissor.bottom = height;
 
+		D3D11_DEPTH_STENCIL_DESC depthStencilDesc{};
+		depthStencilDesc.DepthEnable = true;
+		depthStencilDesc.DepthWriteMask = D3D11_DEPTH_WRITE_MASK_ALL;
+		depthStencilDesc.DepthFunc = D3D11_COMPARISON_LESS;
+		depthStencilDesc.StencilEnable = false;
+		depthStencilDesc.StencilWriteMask = D3D11_DEFAULT_STENCIL_WRITE_MASK;
+		depthStencilDesc.StencilReadMask = D3D11_DEFAULT_STENCIL_READ_MASK;
+
+		depthStencilDesc.FrontFace.StencilFailOp = D3D11_STENCIL_OP_KEEP;
+		depthStencilDesc.FrontFace.StencilDepthFailOp = D3D11_STENCIL_OP_INCR;
+		depthStencilDesc.FrontFace.StencilPassOp = D3D11_STENCIL_OP_KEEP;
+		depthStencilDesc.FrontFace.StencilFunc = D3D11_COMPARISON_ALWAYS;
+
+		depthStencilDesc.BackFace.StencilFailOp = D3D11_STENCIL_OP_KEEP;
+		depthStencilDesc.BackFace.StencilDepthFailOp = D3D11_STENCIL_OP_INCR;
+		depthStencilDesc.BackFace.StencilPassOp = D3D11_STENCIL_OP_KEEP;
+		depthStencilDesc.BackFace.StencilFunc = D3D11_COMPARISON_ALWAYS;
+
 		lightingGraphicsPipeline = new GraphicsPipeline(
 			device,
 			vertexShaderCode,
 			pixelShaderCode,
+			std::nullopt,
 			rasterizerDesc,
+			depthStencilDesc,
 			D3D11_PRIMITIVE_TOPOLOGY_TRIANGLESTRIP,
 			viewport,
 			scissor
@@ -472,7 +695,7 @@ private:
 
 	void updateFrame() {
 		auto look = XMMatrixRotationRollPitchYaw(pitch, yaw, 0.0f);
-		auto trans = XMMatrixTranslation(0.0f, 0.0f, -1.0f);
+		auto trans = XMMatrixTranslation(0.0f, 5.0f, 0.0f);
 
 		auto camera = look * trans;
 		auto det = XMMatrixDeterminant(camera);
@@ -483,7 +706,7 @@ private:
 		int width, height;
 		glfwGetWindowSize(window, &width, &height);
 
-		proj = XMMatrixPerspectiveFovLH(90.0f, static_cast<float>(width) / height, 0.1f, 100.0f);
+		proj = XMMatrixPerspectiveFovLH(45.0f, static_cast<float>(width) / height, 0.1f, 1000.0f);
 		perFrameUniforms.viewProj = perFrameUniforms.view * proj;
 	}
 
@@ -502,15 +725,27 @@ private:
 		{
 			context->ClearRenderTargetView(geometryBuffer.textureViews[i], clearColor);
 		}
-		context->OMSetRenderTargets(GeometryBuffer::MAX_BUFFER, geometryBuffer.textureViews, nullptr);
+		context->ClearDepthStencilView(depthStencilView, D3D11_CLEAR_DEPTH | D3D11_CLEAR_STENCIL, 1.0, 0);
+		context->OMSetRenderTargets(GeometryBuffer::MAX_BUFFER, geometryBuffer.textureViews, depthStencilView);
 
-		// Drawing happens here.
-
+		// Deferred passes to geometry buffer
 		context->VSSetConstantBuffers(0, 1, &perFrameUniformsBuffer);
 		context->PSSetConstantBuffers(0, 1, &perFrameUniformsBuffer);
 
-		context->Draw(3, 0);
+		uint32_t strides = sizeof(Vertex);
+		uint32_t offsets = 0;
 
+		//context->IASetVertexBuffers(0, 1, &vertices, &strides, &offsets);
+		//context->IASetIndexBuffer(indices, DXGI_FORMAT_R32_UINT, 0);
+		//context->DrawIndexed(numIndices, 0, 0);
+
+		for (const auto& mesh : loadedMesh) {
+			context->IASetVertexBuffers(0, 1, &mesh.vertices, &strides, &offsets);
+			context->IASetIndexBuffer(mesh.indices, DXGI_FORMAT_R32_UINT, 0);
+			context->DrawIndexed(mesh.indexCount, 0, 0);
+		}
+
+		// Light accumulation pass to the backbuffer
 		ID3D11Texture2D* backBuffer;
 		if (FAILED(swapChain->GetBuffer(0, IID_PPV_ARGS(&backBuffer)))) {
 			throw std::runtime_error("Failed to get a back buffer!");

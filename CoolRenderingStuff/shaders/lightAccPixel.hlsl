@@ -8,5 +8,7 @@ texture2D albedoTexture : register(t2);
 
 float4 main(VertToPixel i) : SV_TARGET
 {
-	return albedoTexture.Sample(defaultSampler, i.uv);
+	float3 normal = normalTexture.Sample(defaultSampler, i.uv).xyz;
+	float nDotL = dot(normal, normalize(float3(1.0f, 1.0f, 1.0f)));
+	return float4(nDotL, nDotL, nDotL, 1.0);
 }
