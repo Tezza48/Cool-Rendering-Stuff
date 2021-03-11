@@ -1,4 +1,5 @@
 #include "common.hlsli"
+#include "deferredCommon.hlsli"
 
 struct AppData {
     float3 position: POSITION;
@@ -25,9 +26,11 @@ VertToPixel main(AppData i)
     //float3 normal = mul(g_view, float3(0.0f, 0.0f, -1.0f));
 
     VertToPixel o;
-    o.position = mul(g_viewProj, float4(i.position, 1.0f));
+    o.positionW = float4(i.position, 1.0f);
+    o.position = mul(g_viewProj, o.positionW);
     o.color = float3(1.0f, 1.0f, 1.0f);
-    o.normalV = i.normal;
+    o.normalV = mul(g_view, float4(i.normal, 1.0)).xyz;
+    o.texcoord = i.texcoord;
 
 	return o;
 }

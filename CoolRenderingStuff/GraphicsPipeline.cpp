@@ -7,6 +7,7 @@ GraphicsPipeline::GraphicsPipeline(
 	std::optional<std::vector<D3D11_INPUT_ELEMENT_DESC>> inputElementDescs,
 	D3D11_RASTERIZER_DESC rasterizer,
 	D3D11_DEPTH_STENCIL_DESC depthStencil,
+	D3D11_BLEND_DESC blend,
 	D3D11_PRIMITIVE_TOPOLOGY primitiveTopology, 
 	D3D11_VIEWPORT viewport, 
 	D3D11_RECT scissor)
@@ -26,6 +27,8 @@ GraphicsPipeline::GraphicsPipeline(
 	this->scissor = scissor;
 
 	device->CreateDepthStencilState(&depthStencil, &depthStencilState);
+
+	device->CreateBlendState(&blend, &blendState);
 }
 
 GraphicsPipeline::~GraphicsPipeline()
@@ -36,6 +39,7 @@ GraphicsPipeline::~GraphicsPipeline()
 	rasterizerState->Release();
 	pixelShader->Release();
 	depthStencilState->Release();
+	blendState->Release();
 }
 
 void GraphicsPipeline::bind(ID3D11DeviceContext* context)
@@ -53,5 +57,8 @@ void GraphicsPipeline::bind(ID3D11DeviceContext* context)
 
 	context->PSSetShader(pixelShader, nullptr, 0);
 
+	float blendFactor[4];
+	UINT sampleMask = 0xffffffff;
+	context->OMSetBlendState(blendState, blendFactor, sampleMask);
 	context->OMSetDepthStencilState(depthStencilState, 0);
 }

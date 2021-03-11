@@ -116,14 +116,14 @@
       <SDLCheck>true</SDLCheck>
       <PreprocessorDefinitions>_DEBUG;_CONSOLE;%(PreprocessorDefinitions)</PreprocessorDefinitions>
       <ConformanceMode>true</ConformanceMode>
-      <AdditionalIncludeDirectories>E:\sdk\glm-0.9.9.8\glm;E:\sdk\glfw-3.3.2.bin.WIN64\include;E:\dev\Cool-Rendering-Stuff\submodules\assimp\include</AdditionalIncludeDirectories>
+      <AdditionalIncludeDirectories>E:\sdk\glm-0.9.9.8\glm;E:\sdk\glfw-3.3.2.bin.WIN64\include;$(SolutionDir)submodules\assimp\include</AdditionalIncludeDirectories>
       <LanguageStandard>stdcpp17</LanguageStandard>
     </ClCompile>
     <Link>
       <SubSystem>Console</SubSystem>
       <GenerateDebugInformation>true</GenerateDebugInformation>
       <AdditionalLibraryDirectories>$(SolutionDir)submodules\assimp\lib\Debug;E:\sdk\glfw-3.3.2.bin.WIN64\lib-vc2019</AdditionalLibraryDirectories>
-      <AdditionalDependencies>glfw3.lib;d3d11.lib;dxgi.lib;assimp-vc142-mtd.lib;%(AdditionalDependencies)</AdditionalDependencies>
+      <AdditionalDependencies>glfw3.lib;d3d11.lib;dxgi.lib;d3dcompiler.lib;assimp-vc142-mtd.lib;%(AdditionalDependencies)</AdditionalDependencies>
     </Link>
     <FxCompile>
       <AdditionalIncludeDirectories>
@@ -140,7 +140,7 @@
       <SDLCheck>true</SDLCheck>
       <PreprocessorDefinitions>NDEBUG;_CONSOLE;%(PreprocessorDefinitions)</PreprocessorDefinitions>
       <ConformanceMode>true</ConformanceMode>
-      <AdditionalIncludeDirectories>E:\sdk\glm-0.9.9.8\glm;E:\sdk\glfw-3.3.2.bin.WIN64\include;E:\dev\Cool-Rendering-Stuff\submodules\assimp\include</AdditionalIncludeDirectories>
+      <AdditionalIncludeDirectories>E:\sdk\glm-0.9.9.8\glm;E:\sdk\glfw-3.3.2.bin.WIN64\include;$(SolutionDir)submodules\assimp\include</AdditionalIncludeDirectories>
       <LanguageStandard>stdcpp17</LanguageStandard>
     </ClCompile>
     <Link>
@@ -149,7 +149,7 @@
       <OptimizeReferences>true</OptimizeReferences>
       <GenerateDebugInformation>true</GenerateDebugInformation>
       <AdditionalLibraryDirectories>$(SolutionDir)submodules\assimp\lib\Debug;E:\sdk\glfw-3.3.2.bin.WIN64\lib-vc2019</AdditionalLibraryDirectories>
-      <AdditionalDependencies>glfw3.lib;d3d11.lib;dxgi.lib;assimp-vc142-mtd.lib;%(AdditionalDependencies)</AdditionalDependencies>
+      <AdditionalDependencies>glfw3.lib;d3d11.lib;dxgi.lib;d3dcompiler.lib;assimp-vc142-mtd.lib;%(AdditionalDependencies)</AdditionalDependencies>
     </Link>
     <FxCompile>
       <AdditionalIncludeDirectories>
@@ -160,10 +160,19 @@
   </ItemDefinitionGroup>
   <ItemGroup>
     <ClCompile Include="GraphicsPipeline.cpp" />
+    <ClCompile Include="Lighting.cpp" />
     <ClCompile Include="main.cpp" />
+    <ClCompile Include="vendor\imgui\imgui.cpp" />
+    <ClCompile Include="vendor\imgui\imgui_demo.cpp" />
+    <ClCompile Include="vendor\imgui\imgui_draw.cpp" />
+    <ClCompile Include="vendor\imgui\imgui_impl_dx11.cpp" />
+    <ClCompile Include="vendor\imgui\imgui_impl_glfw.cpp" />
+    <ClCompile Include="vendor\imgui\imgui_tables.cpp" />
+    <ClCompile Include="vendor\imgui\imgui_widgets.cpp" />
   </ItemGroup>
   <ItemGroup>
     <None Include="shaders\common.hlsli" />
+    <None Include="shaders\deferredCommon.hlsli" />
     <None Include="shaders\lightAccCommon.hlsli" />
   </ItemGroup>
   <ItemGroup>
@@ -190,6 +199,15 @@
   </ItemGroup>
   <ItemGroup>
     <ClInclude Include="GraphicsPipeline.h" />
+    <ClInclude Include="Lighting.h" />
+    <ClInclude Include="vendor\imgui\imconfig.h" />
+    <ClInclude Include="vendor\imgui\imgui.h" />
+    <ClInclude Include="vendor\imgui\imgui_impl_dx11.h" />
+    <ClInclude Include="vendor\imgui\imgui_impl_glfw.h" />
+    <ClInclude Include="vendor\imgui\imgui_internal.h" />
+    <ClInclude Include="vendor\imgui\imstb_rectpack.h" />
+    <ClInclude Include="vendor\imgui\imstb_textedit.h" />
+    <ClInclude Include="vendor\imgui\imstb_truetype.h" />
   </ItemGroup>
   <Import Project="$(VCTargetsPath)\Microsoft.Cpp.targets" />
   <ImportGroup Label="ExtensionTargets">

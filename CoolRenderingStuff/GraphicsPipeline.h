@@ -11,8 +11,9 @@ struct GraphicsPipeline
 
 	ID3D11VertexShader* vertexShader;
 	ID3D11RasterizerState* rasterizerState;
-	ID3D11DepthStencilState* depthStencilState;
 	ID3D11PixelShader* pixelShader;
+	ID3D11DepthStencilState* depthStencilState;
+	ID3D11BlendState* blendState;
 
 	D3D11_VIEWPORT viewport;
 	D3D11_RECT scissor;
@@ -24,6 +25,7 @@ struct GraphicsPipeline
 		std::optional<std::vector<D3D11_INPUT_ELEMENT_DESC>> inputElementDescs,
 		D3D11_RASTERIZER_DESC rasterizer,
 		D3D11_DEPTH_STENCIL_DESC depthStencil,
+		D3D11_BLEND_DESC blend,
 		D3D11_PRIMITIVE_TOPOLOGY primitiveTopology,
 		D3D11_VIEWPORT viewport,
 		D3D11_RECT scissor = { 0 }

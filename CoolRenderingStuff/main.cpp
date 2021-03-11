@@ -14,18 +14,36 @@
 #include <vector>
 #include <fstream>
 #include <cassert>
+#include <iomanip>
+#include <thread>
 
 #include <DirectXMath.h>
+#include <DirectXColors.h>
+#include <d3dcompiler.h>
 
 #include "GraphicsPipeline.h"
 
 #include <assimp/Importer.hpp>
 #include <assimp/scene.h>
 #include <assimp/postprocess.h>
+#include <assimp/ProgressHandler.hpp>
+
+#include "vendor/imgui/imgui.h"
+#include "vendor/imgui/imgui_impl_glfw.h"
+#include "vendor/imgui/imgui_impl_dx11.h"
+
+#include "Lighting.h"
 
 using namespace DirectX;
 
 #define PI 3.1415927f
+
+class AssimpProgressHandler : public Assimp::ProgressHandler {
+	virtual bool Update(float percentage) {
+		std::cout << "\rAssimp: " << std::fixed << std::setprecision(1) << percentage * 100.0f << std::defaultfloat << "%\tloaded.";
+		return true;
+	}
+};
 
 struct Vertex {
 	XMFLOAT3 position;
@@ -45,7 +63,7 @@ struct GeometryBuffer {
 
 	const DXGI_FORMAT formats[MAX_BUFFER] = {
 		DXGI_FORMAT_R16G16B16A16_FLOAT,
-		DXGI_FORMAT_R16G16B16A16_UNORM,
+		DXGI_FORMAT_R16G16B16A16_SNORM,
 		DXGI_FORMAT_R8G8B8A8_UNORM_SRGB,
 	};
 
@@ -55,9 +73,14 @@ struct GeometryBuffer {
 
 	~GeometryBuffer() {
 		for (size_t i = 0; i < MAX_BUFFER; i++) {
-			textureResourceViews[i]->Release();
-			textureViews[i]->Release();
-			textures[i]->Release();
+			if (textureResourceViews[i])
+				textureResourceViews[i]->Release();
+
+			if (textureViews[i])
+				textureViews[i]->Release();
+
+			if (textures[i])
+				textures[i]->Release();
 		}
 	}
 
@@ -67,14 +90,22 @@ struct GeometryBuffer {
 };
 
 struct Mesh {
+	uint32_t materialId;
+
 	size_t numVertices;
 	ID3D11Buffer* vertices;
 
-	size_t indexCount;
+	uint32_t indexCount;
 	ID3D11Buffer* indices;
 };
 
+struct Material {
+
+};
+
 struct PerFrameUniforms {
+	XMFLOAT2 screenDimensions;
+	float pad[2];
 	DirectX::XMMATRIX view;
 	DirectX::XMMATRIX viewProj;
 };
@@ -107,16 +138,43 @@ public:
 			isFirstTime = false;
 		}
 
-		float extent = PI - 0.01f;
+		if (glfwGetInputMode(window, GLFW_CURSOR) == GLFW_CURSOR_DISABLED) {
+			float extent = PI - 0.1f;
 
-		app->yaw += static_cast<float>(x - lastX) / width;
-		app->pitch += static_cast<float>(y - lastY) / height;
+			app->yaw += static_cast<float>(x - lastX) / width;
+			app->pitch += static_cast<float>(y - lastY) / height;
 
-		app->yaw = std::fmodf(app->yaw, PI * 2.0f);
-		app->pitch = std::fmaxf(-extent, std::fminf(extent, app->pitch));
+			app->yaw = std::fmodf(app->yaw, PI * 2.0f);
+			app->pitch = std::fmaxf(-extent, std::fminf(extent, app->pitch));
+		}
 
 		lastX = (float)x;
 		lastY = (float)y;
+	}
+
+	static void GlfwKeyCallback(GLFWwindow* window, int key, int scancode, int action, int mods) {
+		if (ImGui::GetIO().WantCaptureKeyboard) return;
+
+		auto app = reinterpret_cast<Application*>(glfwGetWindowUserPointer(window));
+
+		if (key == GLFW_KEY_ENTER && action == GLFW_PRESS) {
+			app->RecompileShaders();
+		}
+
+		if (key == GLFW_KEY_ESCAPE && action == GLFW_PRESS) {
+			glfwSetInputMode(window, GLFW_CURSOR, GLFW_CURSOR_NORMAL);
+		}
+	}
+
+	static void GlfwMouseButtonCallback(GLFWwindow* window, int button, int action, int mods)
+	{
+		if (ImGui::GetIO().WantCaptureMouse) return;
+
+		auto app = reinterpret_cast<Application*>(glfwGetWindowUserPointer(window));
+
+		if (button == GLFW_MOUSE_BUTTON_1 && action == GLFW_PRESS) {
+			glfwSetInputMode(window, GLFW_CURSOR, GLFW_CURSOR_DISABLED);
+		}
 	}
 
 	static std::vector<char> readFile(const std::string& filename) {
@@ -153,6 +211,7 @@ private:
 
 	ID3D11Texture2D* depthTexture;
 	ID3D11DepthStencilView* depthStencilView;
+	ID3D11ShaderResourceView* depthStencilSRV;
 
 	//ID3D11Texture2D* multisampleTexture;
 	//ID3D11RenderTargetView* multisampleRTV;
@@ -177,142 +236,60 @@ private:
 
 	// TODO WT: Release in cleanup
 	std::vector<Mesh> loadedMesh;
+	std::vector<Material> loadedMaterials;
+
+	Lighting* lighting;
+
+	Light lights[20];
 
 public:
 	Application() {
 		createWindow();
 		createDeviceAndSwapChain();
+		initImgui();
 		createDeferredGraphicsPipeline();
 		createLightingGraphicsPipeline();
 		createConstantBuffers();
 		createGbuffers();
+		loadModel();
 
-		//Vertex verts[4];
+		lighting = new Lighting(device);
 
-		//verts[0] = { {-1.0f, -1.0f, 0.0f} };
-		//verts[1] = { {-1.0f, 1.0f, 0.0f} };
-		//verts[2] = { {1.0f, 1.0f, 0.0f} };
-		//verts[3] = { {1.0f, -1.0f, 0.0f} };
+		XMVECTOR colors[] = {
+			Colors::Red,
+			Colors::Green,
+			Colors::Blue,
+			Colors::Cyan,
+			Colors::Magenta,
+			Colors::Yellow,
+		};
 
-		//unsigned int idxs[6] = {
-		//	0, 1, 2, 0, 2, 3
-		//};
-
-
-		//D3D11_BUFFER_DESC vDesc = {};
-		//vDesc.Usage = D3D11_USAGE_DEFAULT;
-		//vDesc.ByteWidth = sizeof(Vertex) * 4;
-		//vDesc.BindFlags = D3D11_BIND_VERTEX_BUFFER;
-		//vDesc.CPUAccessFlags = 0;
-		//vDesc.MiscFlags = 0;
-		//vDesc.StructureByteStride = 0;
-
-		//D3D11_SUBRESOURCE_DATA vertData{};
-		//vertData.pSysMem = verts;
-
-		//numIndices = 6;
-		//D3D11_BUFFER_DESC iDesc = {};
-		//iDesc.Usage = D3D11_USAGE_DEFAULT;
-		//iDesc.ByteWidth = sizeof(unsigned int) * 6;
-		//iDesc.BindFlags = D3D11_BIND_INDEX_BUFFER;
-		//iDesc.CPUAccessFlags = 0;
-		//iDesc.MiscFlags = 0;
-		//iDesc.StructureByteStride = 0;
-
-		//D3D11_SUBRESOURCE_DATA indexData{};
-		//indexData.pSysMem = idxs;
-
-		//device->CreateBuffer(&vDesc, &vertData, &vertices);
-		//device->CreateBuffer(&iDesc, &indexData, &indices);
-
-
-		Assimp::Importer* importer = new Assimp::Importer();
-
-		const aiScene* scene = importer->ReadFile("assets/crytekSponza/sponza.obj", aiProcess_CalcTangentSpace | aiProcess_Triangulate);
-
-		//std::vector<aiMaterial*> materials(scene->mMaterials, scene->mMaterials + scene->mNumMaterials);
-		std::vector<aiMesh*> meshes(scene->mMeshes, scene->mMeshes + scene->mNumMeshes);
-
-		loadedMesh.resize(scene->mNumMeshes);
-
-		for (size_t i = 0; i <  scene->mNumMeshes; i++) {
-			Mesh& mesh = loadedMesh[i];
-			aiMesh* data = meshes[i];
-
-			std::vector<Vertex> vertices(data->mNumVertices);
-			for (size_t v = 0; v < data->mNumVertices; v++) {
-				auto pos = data->mVertices[v];
-				auto normal = data->mNormals[v];
-				auto tangent = data->mTangents[v];
-				auto bitangent = data->mBitangents[v];
-				aiVector3D uv;
-				if (data->mTextureCoords) {
-					uv = data->mTextureCoords[0][v];
-				}
-
-				vertices[v] = {
-					{ pos.x / 100.0f, pos.y / 100.0f, pos.z / 100.0f },
-					{ normal.x, normal.y, normal.z },
-					{ tangent.x, tangent.y, tangent.z },
-					{ bitangent.x, bitangent.y, bitangent.z },
-					{ uv.x, uv.y }
-				};
-			}
-
-			D3D11_BUFFER_DESC vDesc = {};
-			vDesc.Usage = D3D11_USAGE_DEFAULT;
-			vDesc.ByteWidth = sizeof(Vertex) * data->mNumVertices;
-			vDesc.BindFlags = D3D11_BIND_VERTEX_BUFFER;
-			vDesc.CPUAccessFlags = 0;
-			vDesc.MiscFlags = 0;
-			vDesc.StructureByteStride = 0;
-
-			D3D11_SUBRESOURCE_DATA vertData{};
-			vertData.pSysMem = vertices.data();
-
-			mesh.numVertices = data->mNumVertices;
-			auto vbHR = device->CreateBuffer(&vDesc, &vertData, &mesh.vertices);
-
-			assert(SUCCEEDED(vbHR));
-
-			std::vector<unsigned int> indices;
-
-			// TODO WT: init indices at correct size and set elems instead of push
-			for (size_t f = 0; f < data->mNumFaces; f++)
-			{
-				indices.push_back(data->mFaces[f].mIndices[0]);
-				indices.push_back(data->mFaces[f].mIndices[1]);
-				indices.push_back(data->mFaces[f].mIndices[2]);
-			}
-
-			D3D11_BUFFER_DESC iDesc = {};
-			iDesc.Usage = D3D11_USAGE_DEFAULT;
-			iDesc.ByteWidth = sizeof(unsigned int) * indices.size();
-			iDesc.BindFlags = D3D11_BIND_INDEX_BUFFER;
-			iDesc.CPUAccessFlags = 0;
-			iDesc.MiscFlags = 0;
-			iDesc.StructureByteStride = 0;
-
-			D3D11_SUBRESOURCE_DATA indexData{};
-			indexData.pSysMem = indices.data();
-
-			mesh.indexCount = indices.size();
-			auto ibHF = device->CreateBuffer(&iDesc, &indexData, &mesh.indices);
-
-			assert(SUCCEEDED(vbHR));
+		for (size_t i = 0; i < 20; i++)
+		{
+			float rand0 = (float)rand() / RAND_MAX;
+			float rand1 = (float)rand() / RAND_MAX;
+			lights[i] = Light(
+				XMFLOAT3 { rand0 * 10.0f - 5.0f, 1.0f, rand1 * 10.0f - 5.0f },
+				1.0f,
+				XMFLOAT3 { 1.0f, 1.0f, 1.0f },
+				1.0f
+			);
+			XMStoreFloat3(&lights[i].color, colors[i % 6]);
 		}
-
-		importer->FreeScene();
-
-		delete importer;
 	}
 
 	~Application() {
+		delete lighting;
+
 		delete lightingGraphicsPipeline;
 		delete deferredGraphicsPipeline;
 
 		//multisampleRTV->Release();
 		//multisampleTexture->Release();
+
+		ImGui_ImplDX11_Shutdown();
+		ImGui_ImplGlfw_Shutdown();
+		ImGui::DestroyContext();
 
 		swapChain->Release();
 		context->Release();
@@ -327,9 +304,9 @@ public:
 		while (!glfwWindowShouldClose(window)) {
 			glfwPollEvents();
 
-			if (glfwGetKey(window, GLFW_KEY_ESCAPE) == GLFW_PRESS) {
-				glfwSetWindowShouldClose(window, true);
-			}
+			ImGui_ImplDX11_NewFrame();
+			ImGui_ImplGlfw_NewFrame();
+			ImGui::NewFrame();
 
 			updateFrame();
 			drawFrame();
@@ -357,6 +334,8 @@ private:
 
 		glfwSetWindowSizeCallback(window, GlfwWindowSizeCallback);
 		glfwSetCursorPosCallback(window, GlfwCursorPosCallback);
+		glfwSetKeyCallback(window, GlfwKeyCallback);
+		glfwSetMouseButtonCallback(window, GlfwMouseButtonCallback);
 	}
 
 	void createDeviceAndSwapChain() {
@@ -424,11 +403,11 @@ private:
 		depthTextureDesc.Height = height;
 		depthTextureDesc.MipLevels = 1;
 		depthTextureDesc.ArraySize = 1;
-		depthTextureDesc.Format = DXGI_FORMAT_D24_UNORM_S8_UINT;
+		depthTextureDesc.Format = DXGI_FORMAT_R24G8_TYPELESS;
 		depthTextureDesc.SampleDesc.Count = 1;
 		depthTextureDesc.SampleDesc.Quality = 0;
 		depthTextureDesc.Usage = D3D11_USAGE_DEFAULT;
-		depthTextureDesc.BindFlags = D3D11_BIND_DEPTH_STENCIL;
+		depthTextureDesc.BindFlags = D3D11_BIND_DEPTH_STENCIL | D3D11_BIND_SHADER_RESOURCE;
 		depthTextureDesc.CPUAccessFlags = 0;
 		depthTextureDesc.MiscFlags = 0;
 
@@ -437,12 +416,22 @@ private:
 		}
 
 		D3D11_DEPTH_STENCIL_VIEW_DESC dsvDesc = {};
-		dsvDesc.Format = depthTextureDesc.Format;
+		dsvDesc.Format = DXGI_FORMAT_D24_UNORM_S8_UINT;
 		dsvDesc.ViewDimension = D3D11_DSV_DIMENSION_TEXTURE2D;
 		dsvDesc.Texture2D.MipSlice = 0;
 
 		hr = device->CreateDepthStencilView(depthTexture, &dsvDesc, &depthStencilView);
 		assert(SUCCEEDED(hr));
+
+		D3D11_SHADER_RESOURCE_VIEW_DESC srvDesc{};
+		srvDesc.Format = DXGI_FORMAT_R24_UNORM_X8_TYPELESS;
+		srvDesc.ViewDimension = D3D11_SRV_DIMENSION_TEXTURE2D;
+		srvDesc.Texture2D.MipLevels = 1;
+		srvDesc.Texture2D.MostDetailedMip = 0;
+
+		if (FAILED(device->CreateShaderResourceView(depthTexture, &srvDesc, &depthStencilSRV))) {
+			throw std::runtime_error("Failed to create depth texture SRV!");
+		}
 
 		//D3D11_TEXTURE2D_DESC msDesc{};
 		//msDesc.Width = width;
@@ -472,6 +461,17 @@ private:
 		//if (!multisampleRTV) {
 		//	throw std::runtime_error("Failed to create multisample RTV!");
 		//}
+	}
+
+	void initImgui() {
+		IMGUI_CHECKVERSION();
+		ImGui::CreateContext();
+		ImGuiIO& io = ImGui::GetIO(); (void)io;
+
+		ImGui::StyleColorsDark();
+
+		ImGui_ImplGlfw_InitForOther(window, true);
+		ImGui_ImplDX11_Init(device, context);
 	}
 
 	void createDeferredGraphicsPipeline() {
@@ -532,6 +532,20 @@ private:
 		depthStencilDesc.BackFace.StencilPassOp = D3D11_STENCIL_OP_KEEP;
 		depthStencilDesc.BackFace.StencilFunc = D3D11_COMPARISON_ALWAYS;
 
+		D3D11_BLEND_DESC blendDesc{};
+		blendDesc.AlphaToCoverageEnable = false;
+		blendDesc.IndependentBlendEnable = false;
+		for (size_t i = 0; i < GeometryBuffer::MAX_BUFFER; i++) {
+			blendDesc.RenderTarget[i].BlendEnable = false;
+			blendDesc.RenderTarget[i].SrcBlend = D3D11_BLEND_ONE;
+			blendDesc.RenderTarget[i].DestBlend = D3D11_BLEND_ZERO;
+			blendDesc.RenderTarget[i].BlendOp = D3D11_BLEND_OP_ADD;
+			blendDesc.RenderTarget[i].SrcBlendAlpha = D3D11_BLEND_ONE;
+			blendDesc.RenderTarget[i].DestBlendAlpha = D3D11_BLEND_ZERO;
+			blendDesc.RenderTarget[i].BlendOpAlpha = D3D11_BLEND_OP_ADD;
+			blendDesc.RenderTarget[i].RenderTargetWriteMask = D3D11_COLOR_WRITE_ENABLE_ALL;
+		}
+
 		deferredGraphicsPipeline = new GraphicsPipeline(
 			device,
 			vertexShaderCode,
@@ -539,6 +553,7 @@ private:
 			std::make_optional(inputs),
 			rasterizerDesc,
 			depthStencilDesc,
+			blendDesc,
 			D3D11_PRIMITIVE_TOPOLOGY_TRIANGLELIST,
 			viewport,
 			scissor
@@ -551,7 +566,7 @@ private:
 
 		D3D11_RASTERIZER_DESC rasterizerDesc{};
 		rasterizerDesc.FillMode = D3D11_FILL_SOLID;
-		rasterizerDesc.CullMode = D3D11_CULL_BACK;
+		rasterizerDesc.CullMode = D3D11_CULL_NONE;
 		rasterizerDesc.FrontCounterClockwise = false;
 		rasterizerDesc.DepthBias = 0;
 		rasterizerDesc.DepthBiasClamp = 0;
@@ -580,8 +595,8 @@ private:
 
 		D3D11_DEPTH_STENCIL_DESC depthStencilDesc{};
 		depthStencilDesc.DepthEnable = true;
-		depthStencilDesc.DepthWriteMask = D3D11_DEPTH_WRITE_MASK_ALL;
-		depthStencilDesc.DepthFunc = D3D11_COMPARISON_LESS;
+		depthStencilDesc.DepthWriteMask = D3D11_DEPTH_WRITE_MASK_ZERO;
+		depthStencilDesc.DepthFunc = D3D11_COMPARISON_NEVER;
 		depthStencilDesc.StencilEnable = false;
 		depthStencilDesc.StencilWriteMask = D3D11_DEFAULT_STENCIL_WRITE_MASK;
 		depthStencilDesc.StencilReadMask = D3D11_DEFAULT_STENCIL_READ_MASK;
@@ -596,14 +611,30 @@ private:
 		depthStencilDesc.BackFace.StencilPassOp = D3D11_STENCIL_OP_KEEP;
 		depthStencilDesc.BackFace.StencilFunc = D3D11_COMPARISON_ALWAYS;
 
+		std::vector<D3D11_INPUT_ELEMENT_DESC> inputs(1);
+		inputs[0] = { "POSITION", 0, DXGI_FORMAT_R32G32B32_FLOAT, 0, 0, D3D11_INPUT_PER_VERTEX_DATA, 0 };
+
+		D3D11_BLEND_DESC blendDesc{};
+		blendDesc.AlphaToCoverageEnable = false;
+		blendDesc.IndependentBlendEnable = false;
+		blendDesc.RenderTarget[0].BlendEnable = true;
+		blendDesc.RenderTarget[0].SrcBlend = D3D11_BLEND_SRC_COLOR;
+		blendDesc.RenderTarget[0].DestBlend = D3D11_BLEND_DEST_COLOR;
+		blendDesc.RenderTarget[0].BlendOp = D3D11_BLEND_OP_ADD;
+		blendDesc.RenderTarget[0].SrcBlendAlpha = D3D11_BLEND_ONE;
+		blendDesc.RenderTarget[0].DestBlendAlpha = D3D11_BLEND_ZERO;
+		blendDesc.RenderTarget[0].BlendOpAlpha = D3D11_BLEND_OP_ADD;
+		blendDesc.RenderTarget[0].RenderTargetWriteMask = D3D11_COLOR_WRITE_ENABLE_ALL;
+
 		lightingGraphicsPipeline = new GraphicsPipeline(
 			device,
 			vertexShaderCode,
 			pixelShaderCode,
-			std::nullopt,
+			std::make_optional(inputs),
 			rasterizerDesc,
 			depthStencilDesc,
-			D3D11_PRIMITIVE_TOPOLOGY_TRIANGLESTRIP,
+			blendDesc,
+			D3D11_PRIMITIVE_TOPOLOGY_TRIANGLELIST,
 			viewport,
 			scissor
 		);
@@ -653,13 +684,6 @@ private:
 			textureDesc.MipLevels = 1;
 			textureDesc.ArraySize = 1;
 			textureDesc.Format = geometryBuffer.formats[i];
-			
-			//if (useMultisampling) {
-			//	textureDesc.SampleDesc.Count = multisampleCount;
-			//	textureDesc.SampleDesc.Quality = multisampleQuality;
-			//}
-			//else {
-			//}
 			textureDesc.SampleDesc.Count = 1;
 			textureDesc.SampleDesc.Quality = 0;
 
@@ -693,24 +717,137 @@ private:
 		}
 	}
 
+	void loadModel() {
+		Assimp::Importer* importer = new Assimp::Importer();
+
+		AssimpProgressHandler* handler = new AssimpProgressHandler();
+		importer->SetProgressHandler(handler); // Taken ownership of handler
+
+		const aiScene* scene = importer->ReadFile("assets/crytekSponza/sponza.obj", aiProcess_CalcTangentSpace | aiProcess_Triangulate);
+
+		loadedMaterials.resize(scene->mNumMaterials);
+
+		//for (size_t i = 0; i < loadedMaterials.size(); i++)
+		//{
+		//	Material& material = loadedMaterials[i];
+		//	aiMaterial* data = scene->mMaterials[i];
+
+		//	std::cout << "Material " << i << " properties:\n";
+
+		//	for (size_t j = 0; j < data->mNumProperties; j++) {
+		//		std::cout << "\t" << data->mProperties[j]->mKey.C_Str();
+		//		std::cout << ":\t" << data->mProperties[j]->mData << "\n";
+		//	}
+
+		//	std::cout << std::endl;
+		//}
+
+		loadedMesh.resize(scene->mNumMeshes);
+
+		for (size_t i = 0; i < scene->mNumMeshes; i++) {
+			Mesh& mesh = loadedMesh[i];
+			aiMesh* data = scene->mMeshes[i];
+
+			mesh.materialId = data->mMaterialIndex;
+
+			std::vector<Vertex> vertices(data->mNumVertices);
+			processVertices(data, vertices);
+
+			auto numIndices = data->mNumFaces * 3u;
+			std::vector<uint32_t> indices(numIndices);
+			processIndices(data, indices);
+
+			D3D11_BUFFER_DESC vDesc = {};
+			vDesc.Usage = D3D11_USAGE_DEFAULT;
+			vDesc.ByteWidth = sizeof(Vertex) * data->mNumVertices;
+			vDesc.BindFlags = D3D11_BIND_VERTEX_BUFFER;
+			vDesc.CPUAccessFlags = 0;
+			vDesc.MiscFlags = 0;
+			vDesc.StructureByteStride = 0;
+
+			D3D11_SUBRESOURCE_DATA vertData{};
+			vertData.pSysMem = vertices.data();
+
+			mesh.numVertices = data->mNumVertices;
+			auto vbHR = device->CreateBuffer(&vDesc, &vertData, &mesh.vertices);
+
+			assert(SUCCEEDED(vbHR));
+
+			D3D11_BUFFER_DESC iDesc = {};
+			iDesc.Usage = D3D11_USAGE_DEFAULT;
+			iDesc.ByteWidth = sizeof(unsigned int) * numIndices;
+			iDesc.BindFlags = D3D11_BIND_INDEX_BUFFER;
+			iDesc.CPUAccessFlags = 0;
+			iDesc.MiscFlags = 0;
+			iDesc.StructureByteStride = 0;
+
+			D3D11_SUBRESOURCE_DATA indexData{};
+			indexData.pSysMem = indices.data();
+
+			mesh.indexCount = numIndices;
+			auto ibHF = device->CreateBuffer(&iDesc, &indexData, &mesh.indices);
+
+			assert(SUCCEEDED(vbHR));
+		}
+
+		importer->FreeScene();
+
+		delete importer;
+	}
+
+	void processVertices(const aiMesh* meshData, std::vector<Vertex>& vertices) {
+		for (size_t v = 0; v < meshData->mNumVertices; v++) {
+			auto pos = meshData->mVertices[v];
+			auto normal = meshData->mNormals[v];
+			auto tangent = meshData->mTangents[v];
+			auto bitangent = meshData->mBitangents[v];
+			aiVector3D uv;
+			if (meshData->mTextureCoords) {
+				uv = meshData->mTextureCoords[0][v];
+			}
+
+			vertices[v] = {
+				{ pos.x / 100.0f, pos.y / 100.0f, pos.z / 100.0f },
+				{ normal.x, normal.y, normal.z },
+				{ tangent.x, tangent.y, tangent.z },
+				{ bitangent.x, bitangent.y, bitangent.z },
+				{ uv.x, uv.y }
+			};
+		}
+	}
+
+	void processIndices(const aiMesh* meshData, std::vector<uint32_t>& indices) {
+		for (size_t face = 0, index = 0; face < meshData->mNumFaces; face++)
+		{
+			indices[index++] = meshData->mFaces[face].mIndices[0];
+			indices[index++] = meshData->mFaces[face].mIndices[1];
+			indices[index++] = meshData->mFaces[face].mIndices[2];
+		}
+	}
+
 	void updateFrame() {
 		auto look = XMMatrixRotationRollPitchYaw(pitch, yaw, 0.0f);
-		auto trans = XMMatrixTranslation(0.0f, 5.0f, 0.0f);
+		auto trans = XMMatrixTranslation(-2.0f, 2.0f, 0.0f);
 
 		auto camera = look * trans;
 		auto det = XMMatrixDeterminant(camera);
 		auto view = XMMatrixInverse(&det, camera);
 
-		perFrameUniforms.view = view;
-		XMMATRIX proj;
 		int width, height;
 		glfwGetWindowSize(window, &width, &height);
+
+		perFrameUniforms.screenDimensions = { static_cast<float>(width), static_cast<float>(height) };
+		perFrameUniforms.view = view;
+		XMMATRIX proj;
 
 		proj = XMMatrixPerspectiveFovLH(45.0f, static_cast<float>(width) / height, 0.1f, 1000.0f);
 		perFrameUniforms.viewProj = perFrameUniforms.view * proj;
 	}
 
 	void drawFrame() {
+		static bool isShowingDemo = true;
+		ImGui::ShowDemoWindow(&isShowingDemo);
+
 		deferredGraphicsPipeline->bind(context);
 		//context->ClearRenderTargetView(multisampleRTV, clearColor);
 		//context->OMSetRenderTargets(1, &multisampleRTV, nullptr);
@@ -770,19 +907,89 @@ private:
 		lightingGraphicsPipeline->bind(context);
 		context->PSSetShaderResources(0, GeometryBuffer::MAX_BUFFER, geometryBuffer.textureResourceViews);
 
+		context->PSSetSamplers(0, 1, &gbufferSampler);
+
 		// Draw light mesh
-		context->Draw(4, 0);
+		for (size_t i = 0; i < 20; i++)
+		{
+			lighting->DrawPointLight(context, lights[i]);
+		}
 
 		ID3D11ShaderResourceView* nullSRVs[GeometryBuffer::MAX_BUFFER];
 		memset(nullSRVs, 0, sizeof(nullSRVs));
 		context->PSSetShaderResources(0, GeometryBuffer::MAX_BUFFER, nullSRVs);
 
-		context->PSSetSamplers(0, 1, &gbufferSampler);
-
 		//context->ResolveSubresource(backBuffer, 0, multisampleTexture, 0, swapChainFormat);
+
+		int width, height;
+		glfwGetWindowSize(window, &width, &height);
+
+		ImGui::Begin("Render Targets");
+		auto size = ImGui::GetItemRectSize();
+		ImGui::Text("GBuffer");
+		float imgWidth = size.x, imgHeight = size.x * height / width;
+		for (size_t i = 0; i < GeometryBuffer::MAX_BUFFER; i++) {
+			ImGui::Image(geometryBuffer.textureResourceViews[i], { imgWidth, imgHeight });
+		}
+		ImGui::Text("Depth Texture");
+		ImGui::Image(depthStencilSRV, { imgWidth, imgHeight });
+		ImGui::End();
+
+		ImGui::Render();
+		ImGui_ImplDX11_RenderDrawData(ImGui::GetDrawData());
 
 		swapChain->Present(1, 0);
 		renderTarget->Release();
+	}
+
+	void RecompileShaders() {
+		ID3D11VertexShader* newVertShader;
+		ID3D11PixelShader* newPixelShader;
+		ID3D10Blob* bytecode;
+		ID3D10Blob* errors;
+
+		// Graphics
+		if (FAILED(D3DCompileFromFile(L"shaders/deferredVertex.hlsl", nullptr, D3D_COMPILE_STANDARD_FILE_INCLUDE, "main", "vs_5_0", 0, 0, &bytecode, &errors))) {
+			std::wcout << L"deferred vshader error " << errors->GetBufferPointer() << std::endl;
+			return;
+		}
+
+		device->CreateVertexShader(bytecode->GetBufferPointer(), bytecode->GetBufferSize(), nullptr, &newVertShader);
+
+		if (FAILED(D3DCompileFromFile(L"shaders/deferredPixel.hlsl", nullptr, D3D_COMPILE_STANDARD_FILE_INCLUDE, "main", "ps_5_0", 0, 0, &bytecode, &errors))) {
+			std::wcout << L"deferred pshader error" << errors->GetBufferPointer() << std::endl;
+			return;
+		}
+
+		device->CreatePixelShader(bytecode->GetBufferPointer(), bytecode->GetBufferSize(), nullptr, &newPixelShader);
+
+		deferredGraphicsPipeline->vertexShader->Release();
+		deferredGraphicsPipeline->pixelShader->Release();
+		deferredGraphicsPipeline->vertexShader = newVertShader;
+		deferredGraphicsPipeline->pixelShader = newPixelShader;
+
+
+		// Lighting
+		if (FAILED(D3DCompileFromFile(L"shaders/lightAccVertex.hlsl", nullptr, D3D_COMPILE_STANDARD_FILE_INCLUDE, "main", "vs_5_0", 0, 0, &bytecode, &errors))) {
+			std::wcout << L"lightAcc vshader error " << errors->GetBufferPointer() << std::endl;
+			return;
+		}
+
+		device->CreateVertexShader(bytecode->GetBufferPointer(), bytecode->GetBufferSize(), nullptr, &newVertShader);
+
+		if (FAILED(D3DCompileFromFile(L"shaders/lightAccPixel.hlsl", nullptr, D3D_COMPILE_STANDARD_FILE_INCLUDE, "main", "ps_5_0", 0, 0, &bytecode, &errors))) {
+			std::wcout << L"lightAcc pshader error" << errors->GetBufferPointer() << std::endl;
+			return;
+		}
+
+		device->CreatePixelShader(bytecode->GetBufferPointer(), bytecode->GetBufferSize(), nullptr, &newPixelShader);
+
+		lightingGraphicsPipeline->vertexShader->Release();
+		lightingGraphicsPipeline->pixelShader->Release();
+		lightingGraphicsPipeline->vertexShader = newVertShader;
+		lightingGraphicsPipeline->pixelShader = newPixelShader;
+
+		std::cout << "Successfully hot reloader lighting pass shaders" << std::endl;
 	}
 
 	void OnWindowResized(uint32_t width, uint32_t height) {
@@ -808,6 +1015,16 @@ private:
 		//	throw std::runtime_error("Failed to recreate multisample texture RTV!");
 		//}
 		//assert(multisampleRTV);
+
+		D3D11_SHADER_RESOURCE_VIEW_DESC srvDesc{};
+		srvDesc.Format = DXGI_FORMAT_D24_UNORM_S8_UINT;
+		srvDesc.ViewDimension = D3D11_SRV_DIMENSION_TEXTURE2D;
+		srvDesc.Texture2D.MipLevels = 1;
+		srvDesc.Texture2D.MostDetailedMip = 0;
+
+		if (FAILED(device->CreateShaderResourceView(depthTexture, &srvDesc, &depthStencilSRV))) {
+			throw std::runtime_error("Failed to create depth texture SRV!");
+		}
 
 		deferredGraphicsPipeline->viewport.Width = static_cast<float>(width);
 		deferredGraphicsPipeline->viewport.Height = static_cast<float>(height);

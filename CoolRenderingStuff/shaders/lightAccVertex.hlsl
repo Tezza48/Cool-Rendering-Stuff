@@ -1,19 +1,18 @@
+#include "common.hlsli"
 #include "lightAccCommon.hlsli"
 
-VertToPixel main(uint index: SV_VertexID)
-{
-    // TODO WT: should be light mesh
-    float2 positions[4] = {
-        float2(-1.0, -1.0),
-        float2(-1.0, 1.0),
-        float2(1.0, -1.0),
-        float2(1.0, 1.0)
-    };
+struct AppData {
+    float3 position: POSITION;
+};
 
+VertToPixel main(AppData i)
+{
+    float4 posW = float4((i.position * g_lightRadius * 2.0) + g_lightPosition, 1.0);
+    //float4 posW = float4(i.position, 1.0);
     VertToPixel o;
-    o.position = float4(positions[index], 0.0f, 1.0f);
-    o.uv = positions[index] * 0.5 + 0.5;
-    o.uv.y = 1.0 - o.uv.y;
+    o.positionH = mul(g_viewProj, posW);
+    o.positionV = mul(g_view, posW).xyz;
+    o.positionW = posW;
 
     return o;
 }
