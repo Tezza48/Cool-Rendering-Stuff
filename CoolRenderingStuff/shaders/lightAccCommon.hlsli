@@ -10,4 +10,6 @@ cbuffer Light: register(b1) {
 
 	float3 g_lightColor;
 	float g_lightIntensity;
+
+	float4 g_lightAmbient;
 };

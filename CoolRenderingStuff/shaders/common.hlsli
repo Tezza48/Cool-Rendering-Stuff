@@ -8,7 +8,7 @@ cbuffer PerFrameUniforms: register(b0) {
 float Lambert(float3 toLight, float3 normal, float distance) {
 	float lambert = saturate(dot(normal, toLight));
 
-	//float atten = lambert / (distance * distance);
+	float atten = lambert / (distance * distance);
 
-	return lambert;
+	return atten;
 }

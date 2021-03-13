@@ -28,11 +28,9 @@ float4 main(VertToPixel i) : SV_TARGET
 
 	float lambert = Lambert(toLight, normal.xyz, dist);
 
-	float linearFalloff = g_lightIntensity / dist;
+	float3 color = albedo.rgb * g_lightColor * lambert * g_lightIntensity;
 
-	float attenuated = lambert / (dist * dist);
-
-	float3 color = albedo.rgb * g_lightColor * attenuated * g_lightIntensity;
+	color += albedo.rgb * g_lightAmbient.rgb;
 
 	return float4(color, 1.0);
 }

@@ -8,6 +8,9 @@
 #define GLFW_EXPOSE_NATIVE_WIN32
 #include <GLFW/glfw3native.h>
 
+#define STB_IMAGE_IMPLEMENTATION
+#include "vendor\stb\stb_image.h"
+
 #include <stdexcept>
 #include <iostream>
 #include <sstream>
@@ -16,6 +19,7 @@
 #include <cassert>
 #include <iomanip>
 #include <thread>
+#include <unordered_map>
 
 #include <DirectXMath.h>
 #include <DirectXColors.h>
@@ -100,7 +104,75 @@ struct Mesh {
 };
 
 struct Material {
+	std::string diffuseTexture;
+};
 
+struct Texture {
+	ID3D11Texture2D* texture;
+	ID3D11ShaderResourceView* textureSRV;
+	ID3D11SamplerState* sampler;
+
+	Texture(ID3D11Device* device, ID3D11DeviceContext* context, int width, int height, int bpp, unsigned char* data) {
+		auto format = DXGI_FORMAT_R8G8B8A8_UNORM;
+
+		D3D11_TEXTURE2D_DESC desc;
+		desc.Width = width;
+		desc.Height = height;
+		desc.MipLevels = 0;
+		desc.ArraySize = 1;
+		desc.Format = format;
+		desc.SampleDesc.Count = 1;
+		desc.SampleDesc.Quality = 0;
+		desc.Usage = D3D11_USAGE_DEFAULT;
+		desc.BindFlags = D3D11_BIND_SHADER_RESOURCE | D3D11_BIND_RENDER_TARGET;
+		desc.CPUAccessFlags = 0;
+		desc.MiscFlags = D3D11_RESOURCE_MISC_GENERATE_MIPS;
+
+		auto hr = device->CreateTexture2D(&desc, nullptr, &texture);
+		if (FAILED(hr)) {
+			throw std::runtime_error("Failed to create texture2D!");
+		}
+
+		context->UpdateSubresource(texture, 0, NULL, data, width * 4 * sizeof(unsigned char), 0);
+
+		D3D11_SHADER_RESOURCE_VIEW_DESC srvDesc{};
+		srvDesc.Format = format;
+		srvDesc.ViewDimension = D3D11_SRV_DIMENSION_TEXTURE2D;
+		srvDesc.Texture2D.MipLevels = -1;
+		srvDesc.Texture2D.MostDetailedMip = 0;
+
+		hr = device->CreateShaderResourceView(texture, &srvDesc, &textureSRV);
+		if (FAILED(hr)) {
+			throw std::runtime_error("Failed to create SRV to texture2D!");
+		}
+
+		context->GenerateMips(textureSRV);
+
+		D3D11_SAMPLER_DESC samplerDesc{};
+		samplerDesc.Filter = D3D11_FILTER_MIN_MAG_MIP_LINEAR;
+		samplerDesc.AddressU = D3D11_TEXTURE_ADDRESS_WRAP;
+		samplerDesc.AddressV = D3D11_TEXTURE_ADDRESS_WRAP;
+		samplerDesc.AddressW = D3D11_TEXTURE_ADDRESS_WRAP;
+		samplerDesc.MipLODBias = 0.0f;
+		samplerDesc.MaxAnisotropy = 1;
+		samplerDesc.ComparisonFunc = D3D11_COMPARISON_ALWAYS;
+		samplerDesc.BorderColor[0] = 0.0f;
+		samplerDesc.BorderColor[1] = 0.0f;
+		samplerDesc.BorderColor[2] = 0.0f;
+		samplerDesc.BorderColor[3] = 0.0f;
+		samplerDesc.MinLOD = 0.0f;
+		samplerDesc.MaxLOD = D3D11_FLOAT32_MAX;
+
+		if (FAILED(device->CreateSamplerState(&samplerDesc, &sampler))) {
+			throw std::runtime_error("Failed to create gbuffer sampler");
+		}
+	}
+
+	~Texture() {
+		textureSRV->Release();
+		texture->Release();
+		sampler->Release();
+	}
 };
 
 struct PerFrameUniforms {
@@ -234,6 +306,8 @@ private:
 	//ID3D11Buffer* indices;
 	//size_t numIndices;
 
+	std::unordered_map<std::string, Texture*> textureCache;
+
 	// TODO WT: Release in cleanup
 	std::vector<Mesh> loadedMesh;
 	std::vector<Material> loadedMaterials;
@@ -251,6 +325,7 @@ public:
 		createLightingGraphicsPipeline();
 		createConstantBuffers();
 		createGbuffers();
+
 		loadModel();
 
 		lighting = new Lighting(device);
@@ -272,13 +347,24 @@ public:
 				XMFLOAT3 { rand0 * 10.0f - 5.0f, 1.0f, rand1 * 10.0f - 5.0f },
 				1.0f,
 				XMFLOAT3 { 1.0f, 1.0f, 1.0f },
-				1.0f
+				1.0f,
+				XMFLOAT4 { 0.0f, 0.0f, 0.0f, 0.0f}
 			);
 			XMStoreFloat3(&lights[i].color, colors[i % 6]);
 		}
+
+		lights[0].ambient = { 0.1f, 0.1f, 0.1f, 0.0f };
 	}
 
 	~Application() {
+		for (auto texture : textureCache) {
+			delete texture.second;
+		}
+
+		for (auto mesh : loadedMesh) {
+			mesh.vertices->Release();
+			mesh.indices->Release();
+		}
 		delete lighting;
 
 		delete lightingGraphicsPipeline;
@@ -611,15 +697,15 @@ private:
 		depthStencilDesc.BackFace.StencilPassOp = D3D11_STENCIL_OP_KEEP;
 		depthStencilDesc.BackFace.StencilFunc = D3D11_COMPARISON_ALWAYS;
 
-		std::vector<D3D11_INPUT_ELEMENT_DESC> inputs(1);
-		inputs[0] = { "POSITION", 0, DXGI_FORMAT_R32G32B32_FLOAT, 0, 0, D3D11_INPUT_PER_VERTEX_DATA, 0 };
+		//std::vector<D3D11_INPUT_ELEMENT_DESC> inputs(1);
+		//inputs[0] = { "POSITION", 0, DXGI_FORMAT_R32G32B32_FLOAT, 0, 0, D3D11_INPUT_PER_VERTEX_DATA, 0 };
 
 		D3D11_BLEND_DESC blendDesc{};
 		blendDesc.AlphaToCoverageEnable = false;
 		blendDesc.IndependentBlendEnable = false;
 		blendDesc.RenderTarget[0].BlendEnable = true;
-		blendDesc.RenderTarget[0].SrcBlend = D3D11_BLEND_SRC_COLOR;
-		blendDesc.RenderTarget[0].DestBlend = D3D11_BLEND_DEST_COLOR;
+		blendDesc.RenderTarget[0].SrcBlend = D3D11_BLEND_ONE;
+		blendDesc.RenderTarget[0].DestBlend = D3D11_BLEND_ONE;
 		blendDesc.RenderTarget[0].BlendOp = D3D11_BLEND_OP_ADD;
 		blendDesc.RenderTarget[0].SrcBlendAlpha = D3D11_BLEND_ONE;
 		blendDesc.RenderTarget[0].DestBlendAlpha = D3D11_BLEND_ZERO;
@@ -630,11 +716,13 @@ private:
 			device,
 			vertexShaderCode,
 			pixelShaderCode,
-			std::make_optional(inputs),
+			//std::make_optional(inputs),
+			std::nullopt,
 			rasterizerDesc,
 			depthStencilDesc,
 			blendDesc,
-			D3D11_PRIMITIVE_TOPOLOGY_TRIANGLELIST,
+			//D3D11_PRIMITIVE_TOPOLOGY_TRIANGLELIST,
+			D3D11_PRIMITIVE_TOPOLOGY_TRIANGLESTRIP,
 			viewport,
 			scissor
 		);
@@ -723,29 +811,52 @@ private:
 		AssimpProgressHandler* handler = new AssimpProgressHandler();
 		importer->SetProgressHandler(handler); // Taken ownership of handler
 
-		const aiScene* scene = importer->ReadFile("assets/crytekSponza/sponza.obj", aiProcess_CalcTangentSpace | aiProcess_Triangulate);
+		stbi_set_flip_vertically_on_load(true);
 
-		loadedMaterials.resize(scene->mNumMaterials);
+		std::string basePath = "assets/crytekSponza_fbx/";
 
-		//for (size_t i = 0; i < loadedMaterials.size(); i++)
-		//{
-		//	Material& material = loadedMaterials[i];
-		//	aiMaterial* data = scene->mMaterials[i];
+		const aiScene* scene = importer->ReadFile(basePath + "sponza.fbx", aiProcess_CalcTangentSpace | aiProcess_Triangulate);
 
-		//	std::cout << "Material " << i << " properties:\n";
+		std::cout << "\n Loaded\n";
 
-		//	for (size_t j = 0; j < data->mNumProperties; j++) {
-		//		std::cout << "\t" << data->mProperties[j]->mKey.C_Str();
-		//		std::cout << ":\t" << data->mProperties[j]->mData << "\n";
-		//	}
+		loadedMaterials.reserve(scene->mNumMaterials);
 
-		//	std::cout << std::endl;
-		//}
+		for (size_t i = 0; i < scene->mNumMaterials; i++) {
+			Material mat;
+			aiMaterial* data = scene->mMaterials[i];
 
-		loadedMesh.resize(scene->mNumMeshes);
+			std::vector<aiMaterialProperty*> properties(data->mProperties, data->mProperties + data->mNumProperties);
+
+			aiColor3D color(0.f, 0.f, 0.f);
+			if (data->Get(AI_MATKEY_COLOR_DIFFUSE, color) != AI_SUCCESS) {
+
+			}
+
+			aiString diffusePath("");
+			if (data->Get(AI_MATKEY_TEXTURE(aiTextureType_DIFFUSE, 0), diffusePath) == AI_SUCCESS) {
+				std::string diffusePathString(diffusePath.C_Str());
+
+				//throw std::runtime_error("Material did not have a Diffuse mat key");
+				int width, height, bpp;
+				unsigned char* diffuseData = stbi_load((basePath + diffusePathString).c_str(), &width, &height, &bpp, STBI_rgb_alpha);
+				if (!diffuseData) {
+					throw std::runtime_error(stbi_failure_reason());
+				}
+
+				std::cout << diffusePathString << " bpp: " << bpp << "\n";
+
+				textureCache[diffusePathString] = new Texture(device, context, width, height, bpp, diffuseData);
+
+				mat.diffuseTexture = diffusePathString;
+			}
+
+			loadedMaterials.push_back(mat);
+		}
+
+		loadedMesh.reserve(scene->mNumMeshes);
 
 		for (size_t i = 0; i < scene->mNumMeshes; i++) {
-			Mesh& mesh = loadedMesh[i];
+			Mesh mesh;
 			aiMesh* data = scene->mMeshes[i];
 
 			mesh.materialId = data->mMaterialIndex;
@@ -788,6 +899,10 @@ private:
 			auto ibHF = device->CreateBuffer(&iDesc, &indexData, &mesh.indices);
 
 			assert(SUCCEEDED(vbHR));
+
+			mesh.materialId = data->mMaterialIndex;
+
+			loadedMesh.push_back(mesh);
 		}
 
 		importer->FreeScene();
@@ -845,9 +960,6 @@ private:
 	}
 
 	void drawFrame() {
-		static bool isShowingDemo = true;
-		ImGui::ShowDemoWindow(&isShowingDemo);
-
 		deferredGraphicsPipeline->bind(context);
 		//context->ClearRenderTargetView(multisampleRTV, clearColor);
 		//context->OMSetRenderTargets(1, &multisampleRTV, nullptr);
@@ -877,6 +989,15 @@ private:
 		//context->DrawIndexed(numIndices, 0, 0);
 
 		for (const auto& mesh : loadedMesh) {
+			auto& mat = loadedMaterials[mesh.materialId];
+
+			if (mat.diffuseTexture != "") {
+				auto tex = textureCache[mat.diffuseTexture];
+
+				context->PSSetSamplers(0, 1, &tex->sampler);
+				context->PSSetShaderResources(0, 1, &tex->textureSRV);
+			}
+
 			context->IASetVertexBuffers(0, 1, &mesh.vertices, &strides, &offsets);
 			context->IASetIndexBuffer(mesh.indices, DXGI_FORMAT_R32_UINT, 0);
 			context->DrawIndexed(mesh.indexCount, 0, 0);
@@ -943,6 +1064,7 @@ private:
 	}
 
 	void RecompileShaders() {
+		// TODO WT: Clean up this memory leak heaven!
 		ID3D11VertexShader* newVertShader;
 		ID3D11PixelShader* newPixelShader;
 		ID3D10Blob* bytecode;
@@ -951,17 +1073,27 @@ private:
 		// Graphics
 		if (FAILED(D3DCompileFromFile(L"shaders/deferredVertex.hlsl", nullptr, D3D_COMPILE_STANDARD_FILE_INCLUDE, "main", "vs_5_0", 0, 0, &bytecode, &errors))) {
 			std::wcout << L"deferred vshader error " << errors->GetBufferPointer() << std::endl;
+			if (errors)
+				errors->Release();
 			return;
 		}
 
 		device->CreateVertexShader(bytecode->GetBufferPointer(), bytecode->GetBufferSize(), nullptr, &newVertShader);
+		if (errors)
+			errors->Release();
+		bytecode->Release();
 
 		if (FAILED(D3DCompileFromFile(L"shaders/deferredPixel.hlsl", nullptr, D3D_COMPILE_STANDARD_FILE_INCLUDE, "main", "ps_5_0", 0, 0, &bytecode, &errors))) {
 			std::wcout << L"deferred pshader error" << errors->GetBufferPointer() << std::endl;
+			if (errors)
+				errors->Release();
 			return;
 		}
 
 		device->CreatePixelShader(bytecode->GetBufferPointer(), bytecode->GetBufferSize(), nullptr, &newPixelShader);
+		if (errors)
+			errors->Release();
+		bytecode->Release();
 
 		deferredGraphicsPipeline->vertexShader->Release();
 		deferredGraphicsPipeline->pixelShader->Release();
@@ -969,20 +1101,31 @@ private:
 		deferredGraphicsPipeline->pixelShader = newPixelShader;
 
 
+
 		// Lighting
 		if (FAILED(D3DCompileFromFile(L"shaders/lightAccVertex.hlsl", nullptr, D3D_COMPILE_STANDARD_FILE_INCLUDE, "main", "vs_5_0", 0, 0, &bytecode, &errors))) {
 			std::wcout << L"lightAcc vshader error " << errors->GetBufferPointer() << std::endl;
+			if (errors)
+				errors->Release();
 			return;
 		}
 
 		device->CreateVertexShader(bytecode->GetBufferPointer(), bytecode->GetBufferSize(), nullptr, &newVertShader);
+		if (errors)
+			errors->Release();
+		bytecode->Release();
 
 		if (FAILED(D3DCompileFromFile(L"shaders/lightAccPixel.hlsl", nullptr, D3D_COMPILE_STANDARD_FILE_INCLUDE, "main", "ps_5_0", 0, 0, &bytecode, &errors))) {
 			std::wcout << L"lightAcc pshader error" << errors->GetBufferPointer() << std::endl;
+			if (errors)
+				errors->Release();
 			return;
 		}
 
 		device->CreatePixelShader(bytecode->GetBufferPointer(), bytecode->GetBufferSize(), nullptr, &newPixelShader);
+		if (errors)
+			errors->Release();
+		bytecode->Release();
 
 		lightingGraphicsPipeline->vertexShader->Release();
 		lightingGraphicsPipeline->pixelShader->Release();

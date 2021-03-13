@@ -10,8 +10,11 @@ struct Light {
 
 	DirectX::XMFLOAT3 color;
 	float intensity;
+
+	DirectX::XMFLOAT4 ambient;
+
 	Light() {}
-	Light(DirectX::XMFLOAT3 pos, float rad, DirectX::XMFLOAT3 col, float inten) : position(pos), radius(rad), color(col), intensity(inten) {}
+	Light(DirectX::XMFLOAT3 pos, float rad, DirectX::XMFLOAT3 col, float inten, DirectX::XMFLOAT4 ambi) : position(pos), radius(rad), color(col), intensity(inten), ambient(ambi) {}
 };
 
 class Lighting

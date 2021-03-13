@@ -57,7 +57,7 @@ void GraphicsPipeline::bind(ID3D11DeviceContext* context)
 
 	context->PSSetShader(pixelShader, nullptr, 0);
 
-	float blendFactor[4];
+	float blendFactor[4] = { 1.0f, 1.0f, 1.0f, 1.0f };
 	UINT sampleMask = 0xffffffff;
 	context->OMSetBlendState(blendState, blendFactor, sampleMask);
 	context->OMSetDepthStencilState(depthStencilState, 0);
