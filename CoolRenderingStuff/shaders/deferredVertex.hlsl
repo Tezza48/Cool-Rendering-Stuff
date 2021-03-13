@@ -25,12 +25,18 @@ VertToPixel main(AppData i)
 
     //float3 normal = mul(g_view, float3(0.0f, 0.0f, -1.0f));
 
+    // TODO WT: Need to be multiplied by model matrix
+
     VertToPixel o;
     o.positionW = float4(i.position, 1.0f);
     o.position = mul(g_viewProj, o.positionW);
     o.color = float3(1.0f, 1.0f, 1.0f);
     o.normalV = mul(g_view, float4(i.normal, 1.0)).xyz;
+    o.normalW = i.normal;
     o.texcoord = i.texcoord;
+    o.normal = i.normal;
+    o.tangent = i.tangent;
+    o.bitangent = i.bitangent;
 
 	return o;
 }

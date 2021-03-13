@@ -103,16 +103,26 @@ struct Mesh {
 	ID3D11Buffer* indices;
 };
 
+struct MaterialCbuffer {
+	int useDiffuseTexture = false;
+	int useNormalTexture = false;
+	int pad[2];
+};
+
 struct Material {
+	std::string name;
 	std::string diffuseTexture;
+	std::string normalTexture;
+	MaterialCbuffer settings;
 };
 
 struct Texture {
+	std::string name;
 	ID3D11Texture2D* texture;
 	ID3D11ShaderResourceView* textureSRV;
 	ID3D11SamplerState* sampler;
 
-	Texture(ID3D11Device* device, ID3D11DeviceContext* context, int width, int height, int bpp, unsigned char* data) {
+	Texture(ID3D11Device* device, ID3D11DeviceContext* context, std::string name,  int width, int height, int bpp, unsigned char* data): name(name) {
 		auto format = DXGI_FORMAT_R8G8B8A8_UNORM;
 
 		D3D11_TEXTURE2D_DESC desc;
@@ -178,6 +188,8 @@ struct Texture {
 struct PerFrameUniforms {
 	XMFLOAT2 screenDimensions;
 	float pad[2];
+	XMFLOAT3 eyePos;
+	float pad3;
 	DirectX::XMMATRIX view;
 	DirectX::XMMATRIX viewProj;
 };
@@ -299,6 +311,8 @@ private:
 	ID3D11Buffer* perFrameUniformsBuffer;
 	PerFrameUniforms perFrameUniforms;
 
+	ID3D11Buffer* perMaterialUniformsBuffer;
+
 	ID3D11SamplerState* gbufferSampler;
 	GeometryBuffer geometryBuffer;
 
@@ -314,7 +328,7 @@ private:
 
 	Lighting* lighting;
 
-	Light lights[20];
+	std::vector<Light> lights;
 
 public:
 	Application() {
@@ -339,11 +353,13 @@ public:
 			Colors::Yellow,
 		};
 
+		lights.emplace_back(XMFLOAT3(0.0f, 1.0f, 0.0f), 1.0f, XMFLOAT3(1.0f, 1.0f, 1.0f), 2.0f, XMFLOAT4());
+
 		for (size_t i = 0; i < 20; i++)
 		{
 			float rand0 = (float)rand() / RAND_MAX;
 			float rand1 = (float)rand() / RAND_MAX;
-			lights[i] = Light(
+			lights.emplace_back(
 				XMFLOAT3 { rand0 * 10.0f - 5.0f, 1.0f, rand1 * 10.0f - 5.0f },
 				1.0f,
 				XMFLOAT3 { 1.0f, 1.0f, 1.0f },
@@ -353,7 +369,7 @@ public:
 			XMStoreFloat3(&lights[i].color, colors[i % 6]);
 		}
 
-		lights[0].ambient = { 0.1f, 0.1f, 0.1f, 0.0f };
+		//lights[0].ambient = { 0.1f, 0.1f, 0.1f, 0.0f };
 	}
 
 	~Application() {
@@ -748,7 +764,7 @@ private:
 	}
 
 	void createConstantBuffers() {
-		D3D11_BUFFER_DESC desc = {};
+		D3D11_BUFFER_DESC desc{};
 		desc.ByteWidth = sizeof(PerFrameUniforms);
 		desc.Usage = D3D11_USAGE_DYNAMIC;
 		desc.BindFlags = D3D11_BIND_CONSTANT_BUFFER;
@@ -758,6 +774,18 @@ private:
 
 		if (FAILED(device->CreateBuffer(&desc, nullptr, &perFrameUniformsBuffer))) {
 			throw std::runtime_error("Failed to create cbuffer!");
+		}
+
+		D3D11_BUFFER_DESC matDesc{};
+		matDesc.ByteWidth = sizeof(MaterialCbuffer);
+		matDesc.Usage = D3D11_USAGE_DYNAMIC;
+		matDesc.BindFlags = D3D11_BIND_CONSTANT_BUFFER;
+		matDesc.CPUAccessFlags = D3D11_CPU_ACCESS_WRITE;
+		matDesc.MiscFlags = 0;
+		matDesc.StructureByteStride = 0;
+
+		if (FAILED(device->CreateBuffer(&matDesc, nullptr, &perMaterialUniformsBuffer))) {
+			throw std::runtime_error("Failed to create material settings cbuffer!");
 		}
 	}
 
@@ -813,9 +841,9 @@ private:
 
 		stbi_set_flip_vertically_on_load(true);
 
-		std::string basePath = "assets/crytekSponza_fbx/";
+		std::string basePath = "assets/cobblePlane/";
 
-		const aiScene* scene = importer->ReadFile(basePath + "sponza.fbx", aiProcess_CalcTangentSpace | aiProcess_Triangulate);
+		const aiScene* scene = importer->ReadFile(basePath + "cobblePlane.fbx", aiProcess_CalcTangentSpace | aiProcess_Triangulate);
 
 		std::cout << "\n Loaded\n";
 
@@ -832,23 +860,56 @@ private:
 
 			}
 
+			aiString name;
+			if (data->Get(AI_MATKEY_NAME, name) == AI_SUCCESS) {
+				std::cout << "Loading material " << name.C_Str() << "\n";
+				mat.name = name.C_Str();
+			}
+
 			aiString diffusePath("");
 			if (data->Get(AI_MATKEY_TEXTURE(aiTextureType_DIFFUSE, 0), diffusePath) == AI_SUCCESS) {
-				std::string diffusePathString(diffusePath.C_Str());
+				std::string diffusePathString(basePath);
+				diffusePathString += diffusePath.C_Str();
 
 				//throw std::runtime_error("Material did not have a Diffuse mat key");
 				int width, height, bpp;
-				unsigned char* diffuseData = stbi_load((basePath + diffusePathString).c_str(), &width, &height, &bpp, STBI_rgb_alpha);
+				unsigned char* diffuseData = stbi_load(diffusePathString.c_str(), &width, &height, &bpp, STBI_rgb_alpha);
 				if (!diffuseData) {
 					throw std::runtime_error(stbi_failure_reason());
 				}
 
-				std::cout << diffusePathString << " bpp: " << bpp << "\n";
+				std::cout << "\t Diffuse Texture: " << diffusePathString << "| W: " << width << " H: " << height << " BPP: " << bpp <<  "\n";
 
-				textureCache[diffusePathString] = new Texture(device, context, width, height, bpp, diffuseData);
+				textureCache[diffusePathString] = new Texture(device, context, diffusePathString, width, height, bpp, diffuseData);
+
+				stbi_image_free(diffuseData);
 
 				mat.diffuseTexture = diffusePathString;
+				mat.settings.useDiffuseTexture = true;
 			}
+
+			aiString normalPath("");
+			if (data->Get(AI_MATKEY_TEXTURE(aiTextureType_NORMALS, 0), normalPath) == AI_SUCCESS) {
+				std::string normalPathString(basePath);
+				normalPathString += normalPath.C_Str();
+
+				int width, height, bpp;
+				unsigned char* normalData = stbi_load(normalPathString.c_str(), &width, &height, &bpp, STBI_rgb_alpha);
+				if (!normalData) {
+					throw std::runtime_error(stbi_failure_reason());
+				}
+
+				std::cout << "\t Normal Texture: " << normalPathString << "| W: " << width << " H: " << height << " BPP: " << bpp << "\n";
+
+				textureCache[normalPathString] = new Texture(device, context, normalPathString, width, height, bpp, normalData);
+
+				stbi_image_free(normalData);
+
+				mat.normalTexture = normalPathString;
+				mat.settings.useNormalTexture = true;
+			}
+
+			std::cout << std::endl;
 
 			loadedMaterials.push_back(mat);
 		}
@@ -942,7 +1003,7 @@ private:
 
 	void updateFrame() {
 		auto look = XMMatrixRotationRollPitchYaw(pitch, yaw, 0.0f);
-		auto trans = XMMatrixTranslation(-2.0f, 2.0f, 0.0f);
+		auto trans = XMMatrixTranslation(0.0f, 2.0f, 0.0f);
 
 		auto camera = look * trans;
 		auto det = XMMatrixDeterminant(camera);
@@ -951,9 +1012,15 @@ private:
 		int width, height;
 		glfwGetWindowSize(window, &width, &height);
 
+		perFrameUniforms.eyePos = { -2.0f, 2.0f, 0.0f };
 		perFrameUniforms.screenDimensions = { static_cast<float>(width), static_cast<float>(height) };
 		perFrameUniforms.view = view;
 		XMMATRIX proj;
+
+		float time = static_cast<float>(glfwGetTime());
+
+		lights[0].position.x = std::cosf(time) * 2.0f;
+		lights[0].position.z = -std::sin(time) * 2.0f;
 
 		proj = XMMatrixPerspectiveFovLH(45.0f, static_cast<float>(width) / height, 0.1f, 1000.0f);
 		perFrameUniforms.viewProj = perFrameUniforms.view * proj;
@@ -988,15 +1055,40 @@ private:
 		//context->IASetIndexBuffer(indices, DXGI_FORMAT_R32_UINT, 0);
 		//context->DrawIndexed(numIndices, 0, 0);
 
+		ID3D11SamplerState* nullSampler = nullptr;
+		ID3D11ShaderResourceView* nullTexture = nullptr;
+
 		for (const auto& mesh : loadedMesh) {
 			auto& mat = loadedMaterials[mesh.materialId];
 
-			if (mat.diffuseTexture != "") {
+			if (mat.settings.useDiffuseTexture) {
 				auto tex = textureCache[mat.diffuseTexture];
 
 				context->PSSetSamplers(0, 1, &tex->sampler);
 				context->PSSetShaderResources(0, 1, &tex->textureSRV);
 			}
+			else {
+				//context->PSSetSamplers(0, 1, &nullSampler); // Don't care about keeping the last sampler attached as it's unused anyway.
+				context->PSSetShaderResources(0, 1, &nullTexture);
+			}
+
+			if (mat.settings.useNormalTexture) {
+				auto tex = textureCache[mat.normalTexture];
+
+				context->PSSetSamplers(1, 1, &tex->sampler);
+				context->PSSetShaderResources(1, 1, &tex->textureSRV);
+			}
+			else {
+				//context->PSSetSamplers(1, 1, &nullSampler); // Don't care about keeping the last sampler attached as it's unused anyway.
+				context->PSSetShaderResources(1, 1, &nullTexture);
+			}
+
+			D3D11_MAPPED_SUBRESOURCE mappedSettings{};
+			context->Map(perMaterialUniformsBuffer, 0, D3D11_MAP_WRITE_DISCARD, 0, &mappedSettings);
+			memcpy(mappedSettings.pData, &mat.settings, sizeof(MaterialCbuffer));
+			context->Unmap(perMaterialUniformsBuffer, 0);
+
+			context->PSSetConstantBuffers(1, 1, &perMaterialUniformsBuffer);
 
 			context->IASetVertexBuffers(0, 1, &mesh.vertices, &strides, &offsets);
 			context->IASetIndexBuffer(mesh.indices, DXGI_FORMAT_R32_UINT, 0);
@@ -1031,7 +1123,7 @@ private:
 		context->PSSetSamplers(0, 1, &gbufferSampler);
 
 		// Draw light mesh
-		for (size_t i = 0; i < 20; i++)
+		for (size_t i = 0; i < lights.size(); i++)
 		{
 			lighting->DrawPointLight(context, lights[i]);
 		}
