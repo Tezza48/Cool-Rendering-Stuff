@@ -353,15 +353,15 @@ public:
 			Colors::Yellow,
 		};
 
-		lights.emplace_back(XMFLOAT3(0.0f, 1.0f, 0.0f), 1.0f, XMFLOAT3(1.0f, 1.0f, 1.0f), 2.0f, XMFLOAT4());
+		lights.emplace_back(XMFLOAT3(0.0f, 0.5f, 0.0f), 2.0f, XMFLOAT3(1.0f, 1.0f, 1.0f), 2.0f, XMFLOAT4());
 
 		for (size_t i = 0; i < 20; i++)
 		{
 			float rand0 = (float)rand() / RAND_MAX;
 			float rand1 = (float)rand() / RAND_MAX;
 			lights.emplace_back(
-				XMFLOAT3 { rand0 * 10.0f - 5.0f, 1.0f, rand1 * 10.0f - 5.0f },
-				1.0f,
+				XMFLOAT3 { rand0 * 10.0f - 5.0f, 0.5f, rand1 * 10.0f - 5.0f },
+				2.0f,
 				XMFLOAT3 { 1.0f, 1.0f, 1.0f },
 				1.0f,
 				XMFLOAT4 { 0.0f, 0.0f, 0.0f, 0.0f}
@@ -713,8 +713,8 @@ private:
 		depthStencilDesc.BackFace.StencilPassOp = D3D11_STENCIL_OP_KEEP;
 		depthStencilDesc.BackFace.StencilFunc = D3D11_COMPARISON_ALWAYS;
 
-		//std::vector<D3D11_INPUT_ELEMENT_DESC> inputs(1);
-		//inputs[0] = { "POSITION", 0, DXGI_FORMAT_R32G32B32_FLOAT, 0, 0, D3D11_INPUT_PER_VERTEX_DATA, 0 };
+		std::vector<D3D11_INPUT_ELEMENT_DESC> inputs(1);
+		inputs[0] = { "POSITION", 0, DXGI_FORMAT_R32G32B32_FLOAT, 0, 0, D3D11_INPUT_PER_VERTEX_DATA, 0 };
 
 		D3D11_BLEND_DESC blendDesc{};
 		blendDesc.AlphaToCoverageEnable = false;
@@ -732,13 +732,13 @@ private:
 			device,
 			vertexShaderCode,
 			pixelShaderCode,
-			//std::make_optional(inputs),
-			std::nullopt,
+			std::make_optional(inputs),
+			//std::nullopt,
 			rasterizerDesc,
 			depthStencilDesc,
 			blendDesc,
-			//D3D11_PRIMITIVE_TOPOLOGY_TRIANGLELIST,
-			D3D11_PRIMITIVE_TOPOLOGY_TRIANGLESTRIP,
+			D3D11_PRIMITIVE_TOPOLOGY_TRIANGLELIST,
+			//D3D11_PRIMITIVE_TOPOLOGY_TRIANGLESTRIP,
 			viewport,
 			scissor
 		);
@@ -1002,8 +1002,10 @@ private:
 	}
 
 	void updateFrame() {
+		perFrameUniforms.eyePos = { 0.0f, 1.5f, 0.0f };
+
 		auto look = XMMatrixRotationRollPitchYaw(pitch, yaw, 0.0f);
-		auto trans = XMMatrixTranslation(0.0f, 2.0f, 0.0f);
+		auto trans = XMMatrixTranslation(perFrameUniforms.eyePos.x, perFrameUniforms.eyePos.y, perFrameUniforms.eyePos.z);
 
 		auto camera = look * trans;
 		auto det = XMMatrixDeterminant(camera);
@@ -1011,8 +1013,6 @@ private:
 
 		int width, height;
 		glfwGetWindowSize(window, &width, &height);
-
-		perFrameUniforms.eyePos = { -2.0f, 2.0f, 0.0f };
 		perFrameUniforms.screenDimensions = { static_cast<float>(width), static_cast<float>(height) };
 		perFrameUniforms.view = view;
 		XMMATRIX proj;
@@ -1164,7 +1164,7 @@ private:
 
 		// Graphics
 		if (FAILED(D3DCompileFromFile(L"shaders/deferredVertex.hlsl", nullptr, D3D_COMPILE_STANDARD_FILE_INCLUDE, "main", "vs_5_0", 0, 0, &bytecode, &errors))) {
-			std::wcout << L"deferred vshader error " << errors->GetBufferPointer() << std::endl;
+			std::wcout << L"deferred vshader error " << (char*)errors->GetBufferPointer() << std::endl;
 			if (errors)
 				errors->Release();
 			return;
@@ -1176,7 +1176,7 @@ private:
 		bytecode->Release();
 
 		if (FAILED(D3DCompileFromFile(L"shaders/deferredPixel.hlsl", nullptr, D3D_COMPILE_STANDARD_FILE_INCLUDE, "main", "ps_5_0", 0, 0, &bytecode, &errors))) {
-			std::wcout << L"deferred pshader error" << errors->GetBufferPointer() << std::endl;
+			std::wcout << L"deferred pshader error" << (char*)errors->GetBufferPointer() << std::endl;
 			if (errors)
 				errors->Release();
 			return;
@@ -1196,7 +1196,7 @@ private:
 
 		// Lighting
 		if (FAILED(D3DCompileFromFile(L"shaders/lightAccVertex.hlsl", nullptr, D3D_COMPILE_STANDARD_FILE_INCLUDE, "main", "vs_5_0", 0, 0, &bytecode, &errors))) {
-			std::wcout << L"lightAcc vshader error " << errors->GetBufferPointer() << std::endl;
+			std::wcout << L"lightAcc vshader error " << (char*)errors->GetBufferPointer() << std::endl;
 			if (errors)
 				errors->Release();
 			return;
@@ -1208,7 +1208,7 @@ private:
 		bytecode->Release();
 
 		if (FAILED(D3DCompileFromFile(L"shaders/lightAccPixel.hlsl", nullptr, D3D_COMPILE_STANDARD_FILE_INCLUDE, "main", "ps_5_0", 0, 0, &bytecode, &errors))) {
-			std::wcout << L"lightAcc pshader error" << errors->GetBufferPointer() << std::endl;
+			std::wcout << L"lightAcc pshader error: " << (char*)errors->GetBufferPointer() << std::endl;
 			if (errors)
 				errors->Release();
 			return;

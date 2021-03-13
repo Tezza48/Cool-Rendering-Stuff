@@ -7,15 +7,14 @@ Lighting::Lighting(ID3D11Device* device)
 	// Unit cube;
 	{
 		XMFLOAT3 positions[] = {
-			{-0.5f, -0.5f, 0.5f},
-			{-0.5f, -0.5f, -0.5f},
-			{0.5f, -0.5f, -0.5f},
-			{0.5f, -0.5f, 0.5f},
-
-			{-0.5f, 0.5f, -0.5f},
-			{-0.5f, 0.5f, 0.5f},
-			{0.5f, 0.5f, 0.5f},
-			{0.5f, 0.5f, -0.5f}
+			{-1.0f, -1.0f,  1.0f},
+			{-1.0f, -1.0f, -1.0f},
+			{ 1.0f, -1.0f, -1.0f},
+			{ 1.0f, -1.0f,  1.0f},
+			{-1.0f,  1.0f, -1.0f},
+			{-1.0f,  1.0f,  1.0f},
+			{ 1.0f,  1.0f,  1.0f},
+			{ 1.0f,  1.0f, -1.0f}
 		};
 
 		D3D11_BUFFER_DESC vDesc{};
@@ -84,10 +83,8 @@ void Lighting::DrawPointLight(ID3D11DeviceContext* context, Light& light)
 	uint32_t stride = sizeof(XMFLOAT3);
 	uint32_t offset = 0;
 
-	//context->IASetVertexBuffers(0, 1, &sphereMesh.vBuffer, &stride, &offset);
-	//context->IASetIndexBuffer(sphereMesh.iBuffer, DXGI_FORMAT_R32_UINT, 0);
-	//context->IASetVertexBuffers(0, 1, nullptr, nullptr, nullptr);
-	//context->IASetIndexBuffer(sphereMesh.iBuffer, DXGI_FORMAT_R32_UINT, 0);
-	//context->DrawIndexed(sphereMesh.numindices, 0, 0);
-	context->Draw(4, 0);
+	context->IASetVertexBuffers(0, 1, &sphereMesh.vBuffer, &stride, &offset);
+	context->IASetIndexBuffer(sphereMesh.iBuffer, DXGI_FORMAT_R32_UINT, 0);
+	context->DrawIndexed(sphereMesh.numindices, 0, 0);
+	//context->Draw(4, 0);
 }
