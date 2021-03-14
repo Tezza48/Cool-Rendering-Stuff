@@ -1,6 +1,6 @@
 ﻿# Cool Rendering Stuff
 
-![image](https://user-images.githubusercontent.com/12277149/111052947-a62e3780-8457-11eb-99a7-6fd702e9d885.png)
+![image](https://user-images.githubusercontent.com/12277149/111053607-1095a680-845d-11eb-9081-f6dffb20bc04.png)
 
 ## Dependencies
 
