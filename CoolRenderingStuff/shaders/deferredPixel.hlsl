@@ -33,7 +33,7 @@ GBuffers main(VertToPixel i)
 	o.position = i.positionW;
 	o.normal = (g_matUseNormal) ? float4(normalW, 1.0) : float4(i.normalW, 1.0);
 
-	//o.normal = o.normal / 2.0 + 0.5;
+	//o.normal = float4(i.normalW, 1.0);
 
 	if (o.albedo.a < 0.5) {
 		discard;
