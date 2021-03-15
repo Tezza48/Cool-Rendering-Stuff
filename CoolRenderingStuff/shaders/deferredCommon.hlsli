@@ -14,5 +14,6 @@ struct VertToPixel {
 cbuffer MaterialSettings: register(b1) {
 	int g_matUseDiffuse;
 	int g_matUseNormal;
-	int __g_matPad[2];
+	int g_matUseAlphaCutout;
+	int __g_matPad;
 }

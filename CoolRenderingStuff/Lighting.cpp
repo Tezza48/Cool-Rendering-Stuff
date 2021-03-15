@@ -80,11 +80,11 @@ void Lighting::DrawPointLight(ID3D11DeviceContext* context, Light& light)
 	context->VSSetConstantBuffers(1, 1, &lightConstantBuffer);
 	context->PSSetConstantBuffers(1, 1, &lightConstantBuffer);
 
-	uint32_t stride = sizeof(XMFLOAT3);
-	uint32_t offset = 0;
+	//uint32_t stride = sizeof(XMFLOAT3);
+	//uint32_t offset = 0;
 
-	context->IASetVertexBuffers(0, 1, &sphereMesh.vBuffer, &stride, &offset);
-	context->IASetIndexBuffer(sphereMesh.iBuffer, DXGI_FORMAT_R32_UINT, 0);
-	context->DrawIndexed(sphereMesh.numindices, 0, 0);
-	//context->Draw(4, 0);
+	//context->IASetVertexBuffers(0, 1, &sphereMesh.vBuffer, &stride, &offset);
+	//context->IASetIndexBuffer(sphereMesh.iBuffer, DXGI_FORMAT_R32_UINT, 0);
+	//context->DrawIndexed(sphereMesh.numindices, 0, 0);
+	context->Draw(4, 0);
 }

@@ -106,13 +106,15 @@ struct Mesh {
 struct MaterialCbuffer {
 	int useDiffuseTexture = false;
 	int useNormalTexture = false;
-	int pad[2];
+	int useAlphaCutoutTexture = false;
+	int pad;
 };
 
 struct Material {
 	std::string name;
 	std::string diffuseTexture;
 	std::string normalTexture;
+	std::string alphaCutoutTexture;
 	MaterialCbuffer settings;
 };
 
@@ -241,10 +243,6 @@ public:
 
 		auto app = reinterpret_cast<Application*>(glfwGetWindowUserPointer(window));
 
-		if (key == GLFW_KEY_ENTER && action == GLFW_PRESS) {
-			app->RecompileShaders();
-		}
-
 		if (key == GLFW_KEY_ESCAPE && action == GLFW_PRESS) {
 			glfwSetInputMode(window, GLFW_CURSOR, GLFW_CURSOR_NORMAL);
 		}
@@ -295,18 +293,11 @@ private:
 
 	ID3D11Texture2D* depthTexture;
 	ID3D11DepthStencilView* depthStencilView;
-	ID3D11ShaderResourceView* depthStencilSRV;
-
-	//ID3D11Texture2D* multisampleTexture;
-	//ID3D11RenderTargetView* multisampleRTV;
-
-	//bool useMultisampling = true;
-	//DXGI_FORMAT multisampleFormat = DXGI_FORMAT_UNKNOWN;
-	//uint32_t multisampleCount = 4;
-	//int multisampleQuality = D3D11_STANDARD_MULTISAMPLE_PATTERN;
 
 	float yaw;
 	float pitch;
+
+	XMFLOAT3 cameraPosition = { 0.0f, 1.5f, 0.0f };
 
 	ID3D11Buffer* perFrameUniformsBuffer;
 	PerFrameUniforms perFrameUniforms;
@@ -316,13 +307,8 @@ private:
 	ID3D11SamplerState* gbufferSampler;
 	GeometryBuffer geometryBuffer;
 
-	//ID3D11Buffer* vertices;
-	//ID3D11Buffer* indices;
-	//size_t numIndices;
-
 	std::unordered_map<std::string, Texture*> textureCache;
 
-	// TODO WT: Release in cleanup
 	std::vector<Mesh> loadedMesh;
 	std::vector<Material> loadedMaterials;
 
@@ -355,13 +341,14 @@ public:
 
 		lights.emplace_back(XMFLOAT3(0.0f, 0.5f, 0.0f), 2.0f, XMFLOAT3(1.0f, 1.0f, 1.0f), 2.0f, XMFLOAT4());
 
-		for (size_t i = 0; i < 20; i++)
+		for (size_t i = 0; i < 50; i++)
 		{
 			float rand0 = (float)rand() / RAND_MAX;
 			float rand1 = (float)rand() / RAND_MAX;
+			float rand2 = (float)rand() / RAND_MAX;
 			lights.emplace_back(
-				XMFLOAT3 { rand0 * 10.0f - 5.0f, 0.5f, rand1 * 10.0f - 5.0f },
-				2.0f,
+				XMFLOAT3 { rand0 * 30.0f - 15.0f, rand2 * 10.0f, rand1 * 20.0f - 10.0f },
+				5.0f,
 				XMFLOAT3 { 1.0f, 1.0f, 1.0f },
 				1.0f,
 				XMFLOAT4 { 0.0f, 0.0f, 0.0f, 0.0f}
@@ -385,9 +372,6 @@ public:
 
 		delete lightingGraphicsPipeline;
 		delete deferredGraphicsPipeline;
-
-		//multisampleRTV->Release();
-		//multisampleTexture->Release();
 
 		ImGui_ImplDX11_Shutdown();
 		ImGui_ImplGlfw_Shutdown();
@@ -425,7 +409,7 @@ private:
 
 		glfwWindowHint(GLFW_CLIENT_API, GLFW_NO_API);
 
-		window = glfwCreateWindow(1600, 900, "D3D11 Application", nullptr, nullptr);
+		window = glfwCreateWindow(1280, 720, "D3D11 Application", nullptr, nullptr);
 		if (!window) {
 			throw std::runtime_error("Failed to create window");
 		}
@@ -513,7 +497,8 @@ private:
 		depthTextureDesc.CPUAccessFlags = 0;
 		depthTextureDesc.MiscFlags = 0;
 
-		if (FAILED(device->CreateTexture2D(&depthTextureDesc, nullptr, &depthTexture))) {
+		hr = device->CreateTexture2D(&depthTextureDesc, nullptr, &depthTexture);
+		if (FAILED(hr)) {
 			throw std::runtime_error("Failed to create depth texture!");
 		}
 
@@ -523,46 +508,9 @@ private:
 		dsvDesc.Texture2D.MipSlice = 0;
 
 		hr = device->CreateDepthStencilView(depthTexture, &dsvDesc, &depthStencilView);
-		assert(SUCCEEDED(hr));
-
-		D3D11_SHADER_RESOURCE_VIEW_DESC srvDesc{};
-		srvDesc.Format = DXGI_FORMAT_R24_UNORM_X8_TYPELESS;
-		srvDesc.ViewDimension = D3D11_SRV_DIMENSION_TEXTURE2D;
-		srvDesc.Texture2D.MipLevels = 1;
-		srvDesc.Texture2D.MostDetailedMip = 0;
-
-		if (FAILED(device->CreateShaderResourceView(depthTexture, &srvDesc, &depthStencilSRV))) {
-			throw std::runtime_error("Failed to create depth texture SRV!");
+		if (FAILED(hr)) {
+			throw std::runtime_error("Failed to create depth texture RTV!");
 		}
-
-		//D3D11_TEXTURE2D_DESC msDesc{};
-		//msDesc.Width = width;
-		//msDesc.Height = height;
-		//msDesc.MipLevels = 1;
-		//msDesc.ArraySize = 1;
-		//msDesc.Format = multisampleFormat;
-		//msDesc.SampleDesc.Count = multisampleCount;
-		//msDesc.SampleDesc.Quality = multisampleQuality;
-		//msDesc.Usage = D3D11_USAGE_DEFAULT;
-		//msDesc.BindFlags = D3D11_BIND_RENDER_TARGET;
-		//msDesc.CPUAccessFlags = 0;
-		//msDesc.MiscFlags = 0;
-
-		//device->CreateTexture2D(&msDesc, nullptr, &multisampleTexture);
-
-		//if (!multisampleTexture) {
-		//	throw std::runtime_error("Failed to create multisample texture!");
-		//}
-
-		//D3D11_RENDER_TARGET_VIEW_DESC msRTVDesc{};
-		//msRTVDesc.Format = multisampleFormat;
-		//msRTVDesc.ViewDimension = D3D11_RTV_DIMENSION_TEXTURE2DMS;
-
-		//device->CreateRenderTargetView(multisampleTexture, &msRTVDesc, &multisampleRTV);
-
-		//if (!multisampleRTV) {
-		//	throw std::runtime_error("Failed to create multisample RTV!");
-		//}
 	}
 
 	void initImgui() {
@@ -713,8 +661,8 @@ private:
 		depthStencilDesc.BackFace.StencilPassOp = D3D11_STENCIL_OP_KEEP;
 		depthStencilDesc.BackFace.StencilFunc = D3D11_COMPARISON_ALWAYS;
 
-		std::vector<D3D11_INPUT_ELEMENT_DESC> inputs(1);
-		inputs[0] = { "POSITION", 0, DXGI_FORMAT_R32G32B32_FLOAT, 0, 0, D3D11_INPUT_PER_VERTEX_DATA, 0 };
+		//std::vector<D3D11_INPUT_ELEMENT_DESC> inputs(1);
+		//inputs[0] = { "POSITION", 0, DXGI_FORMAT_R32G32B32_FLOAT, 0, 0, D3D11_INPUT_PER_VERTEX_DATA, 0 };
 
 		D3D11_BLEND_DESC blendDesc{};
 		blendDesc.AlphaToCoverageEnable = false;
@@ -732,13 +680,13 @@ private:
 			device,
 			vertexShaderCode,
 			pixelShaderCode,
-			std::make_optional(inputs),
-			//std::nullopt,
+			//std::make_optional(inputs),
+			std::nullopt,
 			rasterizerDesc,
 			depthStencilDesc,
 			blendDesc,
-			D3D11_PRIMITIVE_TOPOLOGY_TRIANGLELIST,
-			//D3D11_PRIMITIVE_TOPOLOGY_TRIANGLESTRIP,
+			//D3D11_PRIMITIVE_TOPOLOGY_TRIANGLELIST,
+			D3D11_PRIMITIVE_TOPOLOGY_TRIANGLESTRIP,
 			viewport,
 			scissor
 		);
@@ -841,9 +789,9 @@ private:
 
 		stbi_set_flip_vertically_on_load(true);
 
-		std::string basePath = "assets/cobblePlane/";
+		std::string basePath = "assets/crytekSponza_fbx/";
 
-		const aiScene* scene = importer->ReadFile(basePath + "cobblePlane.fbx", aiProcess_CalcTangentSpace | aiProcess_Triangulate);
+		const aiScene* scene = importer->ReadFile(basePath + "sponza.fbx", aiProcess_CalcTangentSpace | aiProcess_Triangulate | aiProcess_JoinIdenticalVertices);
 
 		std::cout << "\n Loaded\n";
 
@@ -855,61 +803,15 @@ private:
 
 			std::vector<aiMaterialProperty*> properties(data->mProperties, data->mProperties + data->mNumProperties);
 
-			aiColor3D color(0.f, 0.f, 0.f);
-			if (data->Get(AI_MATKEY_COLOR_DIFFUSE, color) != AI_SUCCESS) {
-
-			}
-
 			aiString name;
 			if (data->Get(AI_MATKEY_NAME, name) == AI_SUCCESS) {
-				std::cout << "Loading material " << name.C_Str() << "\n";
+				std::cout << "Loading material " << name.C_Str() << std::endl;
 				mat.name = name.C_Str();
 			}
 
-			aiString diffusePath("");
-			if (data->Get(AI_MATKEY_TEXTURE(aiTextureType_DIFFUSE, 0), diffusePath) == AI_SUCCESS) {
-				std::string diffusePathString(basePath);
-				diffusePathString += diffusePath.C_Str();
-
-				//throw std::runtime_error("Material did not have a Diffuse mat key");
-				int width, height, bpp;
-				unsigned char* diffuseData = stbi_load(diffusePathString.c_str(), &width, &height, &bpp, STBI_rgb_alpha);
-				if (!diffuseData) {
-					throw std::runtime_error(stbi_failure_reason());
-				}
-
-				std::cout << "\t Diffuse Texture: " << diffusePathString << "| W: " << width << " H: " << height << " BPP: " << bpp <<  "\n";
-
-				textureCache[diffusePathString] = new Texture(device, context, diffusePathString, width, height, bpp, diffuseData);
-
-				stbi_image_free(diffuseData);
-
-				mat.diffuseTexture = diffusePathString;
-				mat.settings.useDiffuseTexture = true;
-			}
-
-			aiString normalPath("");
-			if (data->Get(AI_MATKEY_TEXTURE(aiTextureType_NORMALS, 0), normalPath) == AI_SUCCESS) {
-				std::string normalPathString(basePath);
-				normalPathString += normalPath.C_Str();
-
-				int width, height, bpp;
-				unsigned char* normalData = stbi_load(normalPathString.c_str(), &width, &height, &bpp, STBI_rgb_alpha);
-				if (!normalData) {
-					throw std::runtime_error(stbi_failure_reason());
-				}
-
-				std::cout << "\t Normal Texture: " << normalPathString << "| W: " << width << " H: " << height << " BPP: " << bpp << "\n";
-
-				textureCache[normalPathString] = new Texture(device, context, normalPathString, width, height, bpp, normalData);
-
-				stbi_image_free(normalData);
-
-				mat.normalTexture = normalPathString;
-				mat.settings.useNormalTexture = true;
-			}
-
-			std::cout << std::endl;
+			loadTexture(aiTextureType_DIFFUSE, data, basePath, mat.diffuseTexture, (bool&)mat.settings.useDiffuseTexture);
+			loadTexture(aiTextureType_NORMALS, data, basePath, mat.normalTexture, (bool&)mat.settings.useNormalTexture);
+			loadTexture(aiTextureType_OPACITY, data, basePath, mat.alphaCutoutTexture, (bool&)mat.settings.useAlphaCutoutTexture);
 
 			loadedMaterials.push_back(mat);
 		}
@@ -971,6 +873,31 @@ private:
 		delete importer;
 	}
 
+	void loadTexture(aiTextureType type, aiMaterial* materialData, const std::string& baseAssetPath, std::string& outPath, bool& outEnabled) {
+		outEnabled = false;
+		outPath.clear();
+		
+		aiString path;
+		if (materialData->Get(AI_MATKEY_TEXTURE(type, 0), path) == AI_SUCCESS) {
+			outPath += baseAssetPath;
+			outPath += path.C_Str();
+			
+			int width, height, bpp;
+			byte* textureData = stbi_load(outPath.c_str(), &width, &height, &bpp, STBI_rgb_alpha);
+			if (!textureData) {
+				std::stringstream errorString("Failed to load texture ");
+				errorString << outPath << " because " << stbi_failure_reason();
+				throw std::runtime_error(errorString.str());
+			}
+
+			textureCache[outPath] = new Texture(device, context, outPath, width, height, bpp, textureData);
+
+			stbi_image_free(textureData);
+
+			outEnabled = true;
+		}
+	}
+
 	void processVertices(const aiMesh* meshData, std::vector<Vertex>& vertices) {
 		for (size_t v = 0; v < meshData->mNumVertices; v++) {
 			auto pos = meshData->mVertices[v];
@@ -1002,10 +929,33 @@ private:
 	}
 
 	void updateFrame() {
-		perFrameUniforms.eyePos = { 0.0f, 1.5f, 0.0f };
+		static double lastTime = 0.0f;
+		double thisTime = glfwGetTime();
+		float delta = static_cast<float>(thisTime - lastTime);
+		lastTime = thisTime;
 
 		auto look = XMMatrixRotationRollPitchYaw(pitch, yaw, 0.0f);
-		auto trans = XMMatrixTranslation(perFrameUniforms.eyePos.x, perFrameUniforms.eyePos.y, perFrameUniforms.eyePos.z);
+
+		float x = 0;
+		x += glfwGetKey(window, GLFW_KEY_D) == GLFW_PRESS ? 1.0f : 0.0f;
+		x -= glfwGetKey(window, GLFW_KEY_A) == GLFW_PRESS ? 1.0f : 0.0f;
+
+		float y = 0;
+		y += glfwGetKey(window, GLFW_KEY_W) == GLFW_PRESS ? 1.0f : 0.0f;
+		y -= glfwGetKey(window, GLFW_KEY_S) == GLFW_PRESS ? 1.0f : 0.0f;
+
+		auto moveDir = XMVectorSet(x, 0.0f, y, 0.0f);
+		moveDir = XMVector3Normalize(moveDir);
+		moveDir = XMVector3Transform(moveDir, look);
+
+		auto moveDelta = XMVectorScale(moveDir, delta * 2.0f);
+
+		auto newPosition = XMVectorAdd(XMLoadFloat3(&cameraPosition), moveDelta);
+		XMStoreFloat3(&cameraPosition, newPosition);
+
+		perFrameUniforms.eyePos = cameraPosition;
+
+		auto trans = XMMatrixTranslation(cameraPosition.x, cameraPosition.y, cameraPosition.z);
 
 		auto camera = look * trans;
 		auto det = XMMatrixDeterminant(camera);
@@ -1027,6 +977,29 @@ private:
 	}
 
 	void drawFrame() {
+		int width, height;
+		glfwGetWindowSize(window, &width, &height);
+
+		ImGui::BeginMainMenuBar();
+		auto mainMenuSize = ImGui::GetItemRectSize();
+
+		ImGui::MenuItem("Visualize Buffer");
+
+		if (ImGui::MenuItem("Recompile Shaders")) {
+			RecompileShaders();
+		}
+
+		ImGui::EndMainMenuBar();
+
+		ImGui::Begin("Render Targets");
+		auto size = ImGui::GetItemRectSize();
+		ImGui::Text("GBuffer");
+		float imgWidth = size.x, imgHeight = size.x * height / width;
+		for (size_t i = 0; i < GeometryBuffer::MAX_BUFFER; i++) {
+			ImGui::Image(geometryBuffer.textureResourceViews[i], { imgWidth, imgHeight });
+		}
+		ImGui::End();
+
 		deferredGraphicsPipeline->bind(context);
 		//context->ClearRenderTargetView(multisampleRTV, clearColor);
 		//context->OMSetRenderTargets(1, &multisampleRTV, nullptr);
@@ -1067,10 +1040,6 @@ private:
 				context->PSSetSamplers(0, 1, &tex->sampler);
 				context->PSSetShaderResources(0, 1, &tex->textureSRV);
 			}
-			else {
-				//context->PSSetSamplers(0, 1, &nullSampler); // Don't care about keeping the last sampler attached as it's unused anyway.
-				context->PSSetShaderResources(0, 1, &nullTexture);
-			}
 
 			if (mat.settings.useNormalTexture) {
 				auto tex = textureCache[mat.normalTexture];
@@ -1078,9 +1047,12 @@ private:
 				context->PSSetSamplers(1, 1, &tex->sampler);
 				context->PSSetShaderResources(1, 1, &tex->textureSRV);
 			}
-			else {
-				//context->PSSetSamplers(1, 1, &nullSampler); // Don't care about keeping the last sampler attached as it's unused anyway.
-				context->PSSetShaderResources(1, 1, &nullTexture);
+
+			if (mat.settings.useAlphaCutoutTexture) {
+				auto tex = textureCache[mat.alphaCutoutTexture];
+
+				context->PSSetSamplers(2, 1, &tex->sampler);
+				context->PSSetShaderResources(2, 1, &tex->textureSRV);
 			}
 
 			D3D11_MAPPED_SUBRESOURCE mappedSettings{};
@@ -1133,20 +1105,6 @@ private:
 		context->PSSetShaderResources(0, GeometryBuffer::MAX_BUFFER, nullSRVs);
 
 		//context->ResolveSubresource(backBuffer, 0, multisampleTexture, 0, swapChainFormat);
-
-		int width, height;
-		glfwGetWindowSize(window, &width, &height);
-
-		ImGui::Begin("Render Targets");
-		auto size = ImGui::GetItemRectSize();
-		ImGui::Text("GBuffer");
-		float imgWidth = size.x, imgHeight = size.x * height / width;
-		for (size_t i = 0; i < GeometryBuffer::MAX_BUFFER; i++) {
-			ImGui::Image(geometryBuffer.textureResourceViews[i], { imgWidth, imgHeight });
-		}
-		ImGui::Text("Depth Texture");
-		ImGui::Image(depthStencilSRV, { imgWidth, imgHeight });
-		ImGui::End();
 
 		ImGui::Render();
 		ImGui_ImplDX11_RenderDrawData(ImGui::GetDrawData());
@@ -1230,35 +1188,26 @@ private:
 	void OnWindowResized(uint32_t width, uint32_t height) {
 		swapChain->ResizeBuffers(numSwapChainBuffers, width, height, swapChainFormat, 0);
 
-		//D3D11_TEXTURE2D_DESC textureDesc;
-		//multisampleTexture->GetDesc(&textureDesc);
-		//multisampleTexture->Release();
+		D3D11_TEXTURE2D_DESC dstDesc;
+		D3D11_DEPTH_STENCIL_VIEW_DESC dstViewDesc;
+		depthTexture->GetDesc(&dstDesc);
+		depthStencilView->GetDesc(&dstViewDesc);
 
-		//D3D11_RENDER_TARGET_VIEW_DESC rtvDesc;
-		//multisampleRTV->GetDesc(&rtvDesc);
-		//multisampleRTV->Release();
+		depthTexture->Release();
+		depthStencilView->Release();
 
-		//textureDesc.Width = width;
-		//textureDesc.Height = height;
+		dstDesc.Width = width;
+		dstDesc.Height = height;
 
-		//if (FAILED(device->CreateTexture2D(&textureDesc, nullptr, &multisampleTexture))) {
-		//	throw std::runtime_error("Failed to recreate multisample texture!");
-		//}
-		//assert(multisampleTexture);
-
-		//if (FAILED(device->CreateRenderTargetView(multisampleTexture, &rtvDesc, &multisampleRTV))) {
-		//	throw std::runtime_error("Failed to recreate multisample texture RTV!");
-		//}
-		//assert(multisampleRTV);
-
-		D3D11_SHADER_RESOURCE_VIEW_DESC srvDesc{};
-		srvDesc.Format = DXGI_FORMAT_D24_UNORM_S8_UINT;
-		srvDesc.ViewDimension = D3D11_SRV_DIMENSION_TEXTURE2D;
-		srvDesc.Texture2D.MipLevels = 1;
-		srvDesc.Texture2D.MostDetailedMip = 0;
-
-		if (FAILED(device->CreateShaderResourceView(depthTexture, &srvDesc, &depthStencilSRV))) {
-			throw std::runtime_error("Failed to create depth texture SRV!");
+		HRESULT hr;
+		hr = device->CreateTexture2D(&dstDesc, nullptr, &depthTexture);
+		if (FAILED(hr) || !depthTexture) {
+			throw std::runtime_error("Failed to create resized Depth Stencil texture!");
+		}
+		
+		hr = device->CreateDepthStencilView(depthTexture, &dstViewDesc, &depthStencilView);
+		if (FAILED(hr) || !depthStencilView) {
+			throw std::runtime_error("Failed to create resized Depth Stencil View!");
 		}
 
 		deferredGraphicsPipeline->viewport.Width = static_cast<float>(width);
@@ -1266,6 +1215,45 @@ private:
 
 		deferredGraphicsPipeline->scissor.right = width;
 		deferredGraphicsPipeline->scissor.bottom = height;
+
+		for (size_t i = 0; i < GeometryBuffer::MAX_BUFFER; i++)
+		{
+			D3D11_TEXTURE2D_DESC texDesc;
+			D3D11_RENDER_TARGET_VIEW_DESC rtvDesc;
+			D3D11_SHADER_RESOURCE_VIEW_DESC srvDesc;
+			geometryBuffer.textures[i]->GetDesc(&texDesc);
+			geometryBuffer.textureViews[i]->GetDesc(&rtvDesc);
+			geometryBuffer.textureResourceViews[i]->GetDesc(&srvDesc);
+
+			geometryBuffer.textures[i]->Release();
+			geometryBuffer.textureViews[i]->Release();
+			geometryBuffer.textureResourceViews[i]->Release();
+
+			texDesc.Width = width;
+			texDesc.Height = height;
+
+			hr = device->CreateTexture2D(&texDesc, nullptr, &geometryBuffer.textures[i]);
+			if (FAILED(hr) || !geometryBuffer.textures[i]) {
+				throw std::runtime_error("Failed to create resized GBuffer texture!");
+			}
+
+			hr = device->CreateRenderTargetView(geometryBuffer.textures[i], &rtvDesc, &geometryBuffer.textureViews[i]);
+			if (FAILED(hr) || !geometryBuffer.textureViews[i]) {
+				throw std::runtime_error("Failed to create resized GBuffer texture RTV!");
+			}
+
+			hr = device->CreateShaderResourceView(geometryBuffer.textures[i], &srvDesc, &geometryBuffer.textureResourceViews[i]);
+			if (FAILED(hr) || !geometryBuffer.textureResourceViews[i]) {
+				throw std::runtime_error("Failed to create resized GBuffer texture! SRV");
+			}
+
+		}
+
+		lightingGraphicsPipeline->viewport.Width = static_cast<float>(width);
+		lightingGraphicsPipeline->viewport.Height = static_cast<float>(height);
+
+		lightingGraphicsPipeline->scissor.right = width;
+		lightingGraphicsPipeline->scissor.bottom = height;
 	}
 };
 

@@ -44,12 +44,12 @@ float4 main(VertToPixel i) : SV_TARGET
 	float3 toLight = g_lightPosition - positionW;
 	float dist = length(toLight);
 
-	float nDotL = dot(toLight, normal.xyz);
-	float power = 1.0 - min(dist, g_lightRadius) / g_lightRadius;
+	//float nDotL = dot(toLight, normal.xyz);
+	//float power = 1.0 - min(dist, g_lightRadius) / g_lightRadius;
 
-	//float lambert = Lambert(toLight, normal.xyz, dist);
+	float lambert = Lambert(toLight, normal.xyz, dist);
 
-	float3 color = albedo.rgb * g_lightColor * nDotL * power * power * g_lightIntensity;
+	float3 color = albedo.rgb * g_lightColor * lambert * g_lightIntensity;
 
 	color += albedo.rgb * g_lightAmbient.rgb;
 
