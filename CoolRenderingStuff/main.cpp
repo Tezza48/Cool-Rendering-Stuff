@@ -980,25 +980,49 @@ private:
 		int width, height;
 		glfwGetWindowSize(window, &width, &height);
 
-		ImGui::BeginMainMenuBar();
-		auto mainMenuSize = ImGui::GetItemRectSize();
+		if (ImGui::BeginMainMenuBar()) {
+			ImVec2 mainMenuSize = ImGui::GetWindowSize();
 
-		ImGui::MenuItem("Visualize Buffer");
+			deferredGraphicsPipeline->viewport.TopLeftY = lightingGraphicsPipeline->viewport.TopLeftY = mainMenuSize.y;
+			deferredGraphicsPipeline->scissor.top = lightingGraphicsPipeline->scissor.top = static_cast<uint64_t>(mainMenuSize.y);
 
-		if (ImGui::MenuItem("Recompile Shaders")) {
-			RecompileShaders();
+			static int currentVisualizedBuffer = -1;
+			if (ImGui::BeginMenu("Visualize Buffer")) {
+				if (ImGui::MenuItem("Position", nullptr, currentVisualizedBuffer == GeometryBuffer::Buffer::POSITION)) currentVisualizedBuffer = GeometryBuffer::Buffer::POSITION;
+				if (ImGui::MenuItem("Normals", nullptr, currentVisualizedBuffer == GeometryBuffer::Buffer::NORMAL)) currentVisualizedBuffer = GeometryBuffer::Buffer::NORMAL;
+				if (ImGui::MenuItem("Albedo", nullptr, currentVisualizedBuffer == GeometryBuffer::Buffer::ALBEDO)) currentVisualizedBuffer = GeometryBuffer::Buffer::ALBEDO;
+				if (ImGui::MenuItem("None", nullptr, currentVisualizedBuffer == -1)) currentVisualizedBuffer = -1;
+				ImGui::EndMenu();
+			}
+
+			if (ImGui::MenuItem("Recompile Shaders")) {
+				RecompileShaders();
+			}
+
+			ImGui::EndMainMenuBar();
+
+			if (currentVisualizedBuffer >= 0) {
+				ImGui::SetNextWindowPos({ 0.0f, 0.0f });
+				ImGui::SetNextWindowSize({ (float)width, (float)height });
+				ImGui::PushStyleVar(ImGuiStyleVar_WindowPadding, ImVec2());
+				ImGui::SetNextWindowContentSize({ (float)width, (float)height - mainMenuSize.y });
+				if (ImGui::Begin("Visualize", nullptr, ImGuiWindowFlags_NoCollapse | ImGuiWindowFlags_NoResize | ImGuiWindowFlags_NoDecoration | ImGuiWindowFlags_NoMouseInputs | ImGuiWindowFlags_NoBringToFrontOnFocus)) {
+					ImGui::Image(geometryBuffer.textureResourceViews[currentVisualizedBuffer], ImGui::GetWindowSize());
+
+					ImGui::End();
+				}
+			}
 		}
 
-		ImGui::EndMainMenuBar();
 
-		ImGui::Begin("Render Targets");
-		auto size = ImGui::GetItemRectSize();
-		ImGui::Text("GBuffer");
-		float imgWidth = size.x, imgHeight = size.x * height / width;
-		for (size_t i = 0; i < GeometryBuffer::MAX_BUFFER; i++) {
-			ImGui::Image(geometryBuffer.textureResourceViews[i], { imgWidth, imgHeight });
-		}
-		ImGui::End();
+		//ImGui::Begin("Render Targets");
+		//auto size = ImGui::GetItemRectSize();
+		//ImGui::Text("GBuffer");
+		//float imgWidth = size.x, imgHeight = size.x * height / width;
+		//for (size_t i = 0; i < GeometryBuffer::MAX_BUFFER; i++) {
+		//	ImGui::Image(geometryBuffer.textureResourceViews[i], { imgWidth, imgHeight });
+		//}
+		//ImGui::End();
 
 		deferredGraphicsPipeline->bind(context);
 		//context->ClearRenderTargetView(multisampleRTV, clearColor);
