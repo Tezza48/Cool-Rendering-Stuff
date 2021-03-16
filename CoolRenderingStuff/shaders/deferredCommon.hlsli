@@ -15,5 +15,5 @@ cbuffer MaterialSettings: register(b1) {
 	int g_matUseDiffuse;
 	int g_matUseNormal;
 	int g_matUseAlphaCutout;
-	int __g_matPad;
+	int g_matUseSpecular;
 }

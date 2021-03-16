@@ -5,6 +5,10 @@ VisualStudioVersion = 16.0.31005.135
 MinimumVisualStudioVersion = 10.0.40219.1
 Project("{8BC9CEB8-8B4A-11D0-8D11-00A0C91BC942}") = "CoolRenderingStuff", "CoolRenderingStuff\CoolRenderingStuff.vcxproj", "{777D2180-6000-4B7C-A0F2-D070102C48F2}"
 EndProject
+Project("{2150E333-8FDC-42A3-9474-1A3956D46DE8}") = "BumpToNormal", "BumpToNormal", "{92031B90-C8DD-4503-8584-9EAEB14949F5}"
+EndProject
+Project("{8BC9CEB8-8B4A-11D0-8D11-00A0C91BC942}") = "BumpToNormal", "BumpToNormal\BumpToNormal.vcxproj", "{F5A88C27-C9A1-4FDB-BB4D-C4E8462EA768}"
+EndProject
 Global
 	GlobalSection(SolutionConfigurationPlatforms) = preSolution
 		Debug|x64 = Debug|x64
@@ -21,9 +25,20 @@ Global
 		{777D2180-6000-4B7C-A0F2-D070102C48F2}.Release|x64.Build.0 = Release|x64
 		{777D2180-6000-4B7C-A0F2-D070102C48F2}.Release|x86.ActiveCfg = Release|Win32
 		{777D2180-6000-4B7C-A0F2-D070102C48F2}.Release|x86.Build.0 = Release|Win32
+		{F5A88C27-C9A1-4FDB-BB4D-C4E8462EA768}.Debug|x64.ActiveCfg = Debug|x64
+		{F5A88C27-C9A1-4FDB-BB4D-C4E8462EA768}.Debug|x64.Build.0 = Debug|x64
+		{F5A88C27-C9A1-4FDB-BB4D-C4E8462EA768}.Debug|x86.ActiveCfg = Debug|Win32
+		{F5A88C27-C9A1-4FDB-BB4D-C4E8462EA768}.Debug|x86.Build.0 = Debug|Win32
+		{F5A88C27-C9A1-4FDB-BB4D-C4E8462EA768}.Release|x64.ActiveCfg = Release|x64
+		{F5A88C27-C9A1-4FDB-BB4D-C4E8462EA768}.Release|x64.Build.0 = Release|x64
+		{F5A88C27-C9A1-4FDB-BB4D-C4E8462EA768}.Release|x86.ActiveCfg = Release|Win32
+		{F5A88C27-C9A1-4FDB-BB4D-C4E8462EA768}.Release|x86.Build.0 = Release|Win32
 	EndGlobalSection
 	GlobalSection(SolutionProperties) = preSolution
 		HideSolutionNode = FALSE
+	EndGlobalSection
+	GlobalSection(NestedProjects) = preSolution
+		{F5A88C27-C9A1-4FDB-BB4D-C4E8462EA768} = {92031B90-C8DD-4503-8584-9EAEB14949F5}
 	EndGlobalSection
 	GlobalSection(ExtensibilityGlobals) = postSolution
 		SolutionGuid = {677BCFAB-AB58-4158-A3AE-44A865B87126}

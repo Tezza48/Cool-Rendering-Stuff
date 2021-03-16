@@ -7,10 +7,10 @@ cbuffer PerFrameUniforms: register(b0) {
 	float4x4 g_viewProj;
 };
 
-float Lambert(float3 toLight, float3 normal, float distance) {
+float Lambert(float3 toLight, float3 normal, float distanceSquared) {
 	float lambert = saturate(dot(normal, toLight));
 
-	float atten = lambert / (distance * distance);
+	float atten = lambert / distanceSquared;
 
 	return atten;
 }

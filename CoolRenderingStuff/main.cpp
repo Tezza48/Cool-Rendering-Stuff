@@ -62,6 +62,7 @@ struct GeometryBuffer {
 		POSITION,
 		NORMAL,
 		ALBEDO,
+		SPECULAR,
 		MAX_BUFFER,
 	};
 
@@ -69,6 +70,7 @@ struct GeometryBuffer {
 		DXGI_FORMAT_R16G16B16A16_FLOAT,
 		DXGI_FORMAT_R16G16B16A16_SNORM,
 		DXGI_FORMAT_R8G8B8A8_UNORM_SRGB,
+		DXGI_FORMAT_R16G16B16A16_FLOAT,
 	};
 
 	ID3D11Texture2D* textures[MAX_BUFFER];
@@ -104,10 +106,11 @@ struct Mesh {
 };
 
 struct MaterialCbuffer {
+	// TODO WT: bit flags (though 16 byte alignment makes that redundant right now).
 	int useDiffuseTexture = false;
 	int useNormalTexture = false;
 	int useAlphaCutoutTexture = false;
-	int pad;
+	int useSpecularTexture = false;
 };
 
 struct Material {
@@ -115,6 +118,7 @@ struct Material {
 	std::string diffuseTexture;
 	std::string normalTexture;
 	std::string alphaCutoutTexture;
+	std::string specularTexture;
 	MaterialCbuffer settings;
 };
 
@@ -144,6 +148,8 @@ struct Texture {
 		if (FAILED(hr)) {
 			throw std::runtime_error("Failed to create texture2D!");
 		}
+
+		texture->SetPrivateData(WKPDID_D3DDebugObjectName, name.size(), name.c_str());
 
 		context->UpdateSubresource(texture, 0, NULL, data, width * 4 * sizeof(unsigned char), 0);
 
@@ -339,24 +345,22 @@ public:
 			Colors::Yellow,
 		};
 
-		lights.emplace_back(XMFLOAT3(0.0f, 0.5f, 0.0f), 2.0f, XMFLOAT3(1.0f, 1.0f, 1.0f), 2.0f, XMFLOAT4());
+		lights.push_back(Light(XMFLOAT3(0.0f, 1.0f, 0.0f), 2.0f, XMFLOAT3(1.0f, 1.0f, 1.0f), 1.0f, XMFLOAT4(0.1f, 0.1f, 0.1f, 1.0f)));
 
-		for (size_t i = 0; i < 50; i++)
+		for (size_t i = 1; i < 50; i++)
 		{
 			float rand0 = (float)rand() / RAND_MAX;
 			float rand1 = (float)rand() / RAND_MAX;
 			float rand2 = (float)rand() / RAND_MAX;
-			lights.emplace_back(
+			lights.push_back(Light(
 				XMFLOAT3 { rand0 * 30.0f - 15.0f, rand2 * 10.0f, rand1 * 20.0f - 10.0f },
 				5.0f,
 				XMFLOAT3 { 1.0f, 1.0f, 1.0f },
 				1.0f,
 				XMFLOAT4 { 0.0f, 0.0f, 0.0f, 0.0f}
-			);
+			));
 			XMStoreFloat3(&lights[i].color, colors[i % 6]);
 		}
-
-		//lights[0].ambient = { 0.1f, 0.1f, 0.1f, 0.0f };
 	}
 
 	~Application() {
@@ -812,6 +816,11 @@ private:
 			loadTexture(aiTextureType_DIFFUSE, data, basePath, mat.diffuseTexture, (bool&)mat.settings.useDiffuseTexture);
 			loadTexture(aiTextureType_NORMALS, data, basePath, mat.normalTexture, (bool&)mat.settings.useNormalTexture);
 			loadTexture(aiTextureType_OPACITY, data, basePath, mat.alphaCutoutTexture, (bool&)mat.settings.useAlphaCutoutTexture);
+			loadTexture(aiTextureType_SPECULAR, data, basePath, mat.specularTexture, (bool&)mat.settings.useSpecularTexture);
+			if (!mat.settings.useSpecularTexture)
+				loadTexture(aiTextureType_SHININESS, data, basePath, mat.specularTexture, (bool&)mat.settings.useSpecularTexture);
+			if (!mat.settings.useSpecularTexture)
+				loadTexture(aiTextureType_DIFFUSE_ROUGHNESS, data, basePath, mat.specularTexture, (bool&)mat.settings.useSpecularTexture);
 
 			loadedMaterials.push_back(mat);
 		}
@@ -845,6 +854,10 @@ private:
 			mesh.numVertices = data->mNumVertices;
 			auto vbHR = device->CreateBuffer(&vDesc, &vertData, &mesh.vertices);
 
+			std::string vbufferName(data->mName.C_Str());
+			vbufferName += "_VertexBuffer";
+			mesh.vertices->SetPrivateData(WKPDID_D3DDebugObjectName, vbufferName.size(), vbufferName.c_str());
+
 			assert(SUCCEEDED(vbHR));
 
 			D3D11_BUFFER_DESC iDesc = {};
@@ -860,6 +873,10 @@ private:
 
 			mesh.indexCount = numIndices;
 			auto ibHF = device->CreateBuffer(&iDesc, &indexData, &mesh.indices);
+
+			std::string ibufferName(data->mName.C_Str());
+			ibufferName += "_IndexBuffer";
+			mesh.indices->SetPrivateData(WKPDID_D3DDebugObjectName, ibufferName.size(), ibufferName.c_str());
 
 			assert(SUCCEEDED(vbHR));
 
@@ -881,6 +898,8 @@ private:
 		if (materialData->Get(AI_MATKEY_TEXTURE(type, 0), path) == AI_SUCCESS) {
 			outPath += baseAssetPath;
 			outPath += path.C_Str();
+
+			std::cout << outPath << std::endl;
 			
 			int width, height, bpp;
 			byte* textureData = stbi_load(outPath.c_str(), &width, &height, &bpp, STBI_rgb_alpha);
@@ -983,7 +1002,6 @@ private:
 		if (ImGui::BeginMainMenuBar()) {
 			ImVec2 mainMenuSize = ImGui::GetWindowSize();
 
-			deferredGraphicsPipeline->viewport.TopLeftY = lightingGraphicsPipeline->viewport.TopLeftY = mainMenuSize.y;
 			deferredGraphicsPipeline->scissor.top = lightingGraphicsPipeline->scissor.top = static_cast<uint64_t>(mainMenuSize.y);
 
 			static int currentVisualizedBuffer = -1;
@@ -991,6 +1009,7 @@ private:
 				if (ImGui::MenuItem("Position", nullptr, currentVisualizedBuffer == GeometryBuffer::Buffer::POSITION)) currentVisualizedBuffer = GeometryBuffer::Buffer::POSITION;
 				if (ImGui::MenuItem("Normals", nullptr, currentVisualizedBuffer == GeometryBuffer::Buffer::NORMAL)) currentVisualizedBuffer = GeometryBuffer::Buffer::NORMAL;
 				if (ImGui::MenuItem("Albedo", nullptr, currentVisualizedBuffer == GeometryBuffer::Buffer::ALBEDO)) currentVisualizedBuffer = GeometryBuffer::Buffer::ALBEDO;
+				if (ImGui::MenuItem("Specular", nullptr, currentVisualizedBuffer == GeometryBuffer::Buffer::SPECULAR)) currentVisualizedBuffer = GeometryBuffer::Buffer::SPECULAR;
 				if (ImGui::MenuItem("None", nullptr, currentVisualizedBuffer == -1)) currentVisualizedBuffer = -1;
 				ImGui::EndMenu();
 			}
@@ -1058,26 +1077,43 @@ private:
 		for (const auto& mesh : loadedMesh) {
 			auto& mat = loadedMaterials[mesh.materialId];
 
-			if (mat.settings.useDiffuseTexture) {
-				auto tex = textureCache[mat.diffuseTexture];
+			ID3D11ShaderResourceView* views[] = {
+				(mat.settings.useDiffuseTexture) ? textureCache[mat.diffuseTexture]->textureSRV : nullptr,
+				(mat.settings.useNormalTexture) ? textureCache[mat.normalTexture]->textureSRV : nullptr,
+				(mat.settings.useAlphaCutoutTexture) ? textureCache[mat.alphaCutoutTexture]->textureSRV : nullptr,
+				(mat.settings.useSpecularTexture) ? textureCache[mat.specularTexture]->textureSRV : nullptr,
+			};
 
-				context->PSSetSamplers(0, 1, &tex->sampler);
-				context->PSSetShaderResources(0, 1, &tex->textureSRV);
-			}
+			ID3D11SamplerState* samplers[] = {
+				(mat.settings.useDiffuseTexture) ? textureCache[mat.diffuseTexture]->sampler : nullptr,
+				(mat.settings.useNormalTexture) ? textureCache[mat.normalTexture]->sampler : nullptr,
+				(mat.settings.useAlphaCutoutTexture) ? textureCache[mat.alphaCutoutTexture]->sampler : nullptr,
+				(mat.settings.useSpecularTexture) ? textureCache[mat.specularTexture]->sampler : nullptr,
+			};
 
-			if (mat.settings.useNormalTexture) {
-				auto tex = textureCache[mat.normalTexture];
+			context->PSSetShaderResources(0, 4, views);
+			context->PSSetSamplers(0, 4, samplers);
 
-				context->PSSetSamplers(1, 1, &tex->sampler);
-				context->PSSetShaderResources(1, 1, &tex->textureSRV);
-			}
+			//if (mat.settings.useDiffuseTexture) {
+			//	auto tex = textureCache[mat.diffuseTexture];
 
-			if (mat.settings.useAlphaCutoutTexture) {
-				auto tex = textureCache[mat.alphaCutoutTexture];
+			//	context->PSSetSamplers(0, 1, &tex->sampler);
+			//	context->PSSetShaderResources(0, 1, &tex->textureSRV);
+			//}
 
-				context->PSSetSamplers(2, 1, &tex->sampler);
-				context->PSSetShaderResources(2, 1, &tex->textureSRV);
-			}
+			//if (mat.settings.useNormalTexture) {
+			//	auto tex = textureCache[mat.normalTexture];
+
+			//	context->PSSetSamplers(1, 1, &tex->sampler);
+			//	context->PSSetShaderResources(1, 1, &tex->textureSRV);
+			//}
+
+			//if (mat.settings.useAlphaCutoutTexture) {
+			//	auto tex = textureCache[mat.alphaCutoutTexture];
+
+			//	context->PSSetSamplers(2, 1, &tex->sampler);
+			//	context->PSSetShaderResources(2, 1, &tex->textureSRV);
+			//}
 
 			D3D11_MAPPED_SUBRESOURCE mappedSettings{};
 			context->Map(perMaterialUniformsBuffer, 0, D3D11_MAP_WRITE_DISCARD, 0, &mappedSettings);

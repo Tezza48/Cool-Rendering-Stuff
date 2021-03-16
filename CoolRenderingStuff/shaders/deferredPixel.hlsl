@@ -10,10 +10,14 @@ texture2D normalTexture: register(t1);
 SamplerState alphaCutoutSampler: register(s2);
 texture2D alphaCutoutTexture: register(t2);
 
+SamplerState specularSampler: register(s3);
+texture2D specularTexture: register(t3);
+
 struct GBuffers {
 	float4 position: SV_TARGET0;
 	float4 normal: SV_TARGET1;
 	float4 albedo: SV_TARGET2;
+	float4 specular: SV_TARGET3;
 };
 
 GBuffers main(VertToPixel i)
@@ -42,6 +46,7 @@ GBuffers main(VertToPixel i)
 
 	o.position = i.positionW;
 	o.normal = (g_matUseNormal) ? float4(normalW, 1.0) : float4(i.normalW, 1.0);
+	o.specular = (g_matUseSpecular) ? float4(specularTexture.Sample(specularSampler, i.texcoord).rgb, 1.0) : float4(0.005, 0.005, 0.005, 1.0);
 
 	// TODO WT: Remove this debug statement
 	//o.albedo = float4(i.texcoord, 0.0f, 1.0f);
