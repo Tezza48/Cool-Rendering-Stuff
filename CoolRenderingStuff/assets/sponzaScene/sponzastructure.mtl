@@ -1,0 +1,257 @@
+# cgf-converter .mtl export version 1.0.8.0
+#
+newmtl bottomVase_SUB
+Ka 0.102242 0.084376 0.078187
+Kd 0.102242 0.084376 0.078187
+Ks 0.000000 0.000000 0.000000
+Ns 0.039216
+d 1.000000
+illum 2
+map_Kd E:\tezza\Desktop\sponzaScene\objects\sponzaScene\sponzaTextures\vase_diff.dds
+map_bump E:\tezza\Desktop\sponzaScene\objects\sponzaScene\sponzaTextures\vase_ddna.dds
+
+newmtl vaseVeg_SUB
+Ka 0.051269 0.048172 0.052861
+Kd 0.051269 0.048172 0.052861
+Ks 0.000000 0.000000 0.000000
+Ns 0.039216
+d 1.000000
+illum 2
+map_Kd E:\tezza\Desktop\sponzaScene\objects\sponzaScene\sponzaTextures\vase_plant_diff.dds
+
+newmtl sidePodium_SUB
+Ka 0.292683 0.292683 0.292683
+Kd 0.292683 0.292683 0.292683
+Ks 0.000000 0.000000 0.000000
+Ns 0.039216
+d 0.000000
+illum 2
+map_Kd E:\tezza\Desktop\sponzaScene\objects\sponzaScene\sponzaTextures\sponza_bricks_a_diff.dds
+
+newmtl vegetation_SUB
+Ka 0.439657 0.577581 0.417885
+Kd 0.439657 0.577581 0.417885
+Ks 0.000000 0.000000 0.000000
+Ns 0.039216
+d 1.000000
+illum 2
+map_Kd E:\tezza\Desktop\sponzaScene\objects\sponzaScene\sponzaTextures\sponza_thorn_diff.dds
+map_bump E:\tezza\Desktop\sponzaScene\objects\sponzaScene\sponzaTextures\sponza_thorn_ddn.dds
+map_Ks E:\tezza\Desktop\sponzaScene\objects\sponzaScene\sponzaTextures\sponza_thorn_spec.dds
+map_Ns E:\tezza\Desktop\sponzaScene\objects\sponzaScene\sponzaTextures\sponza_thorn_spec.dds
+
+newmtl hangingPot_SUB
+Ka 0.262251 0.262251 0.262251
+Kd 0.262251 0.262251 0.262251
+Ks 0.040915 0.024158 0.017642
+Ns 0.784314
+d 1.000000
+illum 2
+map_Kd E:\tezza\Desktop\sponzaScene\objects\sponzaScene\sponzaTextures\vase_hanging_diff.dds
+map_bump E:\tezza\Desktop\sponzaScene\objects\pbs_reference\worn_metal_ddna.dds
+map_Ks E:\tezza\Desktop\sponzaScene\objects\pbs_reference\copper_spec.dds
+map_Ns E:\tezza\Desktop\sponzaScene\objects\pbs_reference\copper_spec.dds
+
+newmtl hangingChain_SUB
+Ka 0.146119 0.249471 0.260163
+Kd 0.146119 0.249471 0.260163
+Ks 0.000000 0.000000 0.000000
+Ns 0.039216
+d 1.000000
+illum 2
+map_Kd E:\tezza\Desktop\sponzaScene\objects\sponzaScene\sponzaTextures\chain_texture_diff.dds
+map_bump E:\tezza\Desktop\sponzaScene\objects\sponzaScene\sponzaTextures\chain_texture_ddn.dds
+
+newmtl outerWall_SUB
+Ka 0.955974 0.577581 0.356400
+Kd 0.955974 0.577581 0.356400
+Ks 0.029557 0.029557 0.029557
+Ns 1.000000
+d 1.000000
+illum 2
+map_Kd E:\tezza\Desktop\sponzaScene\textures\generic\brick\brick_large_worn_diff.dds
+map_bump E:\tezza\Desktop\sponzaScene\textures\generic\brick\brick_large_worn_ddna.dds
+
+newmtl underCeiling_SUB
+Ka 0.138432 0.138432 0.138432
+Kd 0.138432 0.138432 0.138432
+Ks 0.042311 0.042311 0.042311
+Ns 1.000000
+d 1.000000
+illum 2
+map_Kd E:\tezza\Desktop\sponzaScene\objects\sponzaScene\sponzaTextures\sponza_ceiling_a_diff.dds
+map_bump E:\tezza\Desktop\sponzaScene\objects\sponzaScene\sponzaTextures\sponza_ceiling_a_ddna.dds
+
+newmtl bottomColumn_SUB
+Ka 0.165132 0.122139 0.093059
+Kd 0.165132 0.122139 0.093059
+Ks 0.000000 0.000000 0.000000
+Ns 0.039216
+d 1.000000
+illum 2
+map_Kd E:\tezza\Desktop\sponzaScene\objects\sponzaScene\sponzaTextures\sponza_column_a_diff.dds
+map_bump E:\tezza\Desktop\sponzaScene\objects\sponzaScene\sponzaTextures\sponza_column_a_ddna.dds
+map_Ks E:\tezza\Desktop\sponzaScene\objects\sponzaScene\sponzaTextures\sponza_column_a_spec.dds
+map_Ns E:\tezza\Desktop\sponzaScene\objects\sponzaScene\sponzaTextures\sponza_column_a_spec.dds
+
+newmtl arches_SUB
+Ka 0.396755 0.296138 0.230740
+Kd 0.396755 0.296138 0.230740
+Ks 0.000000 0.000000 0.000000
+Ns 0.039216
+d 1.000000
+illum 2
+map_Kd E:\tezza\Desktop\sponzaScene\objects\sponzaScene\sponzaTextures\sponza_arch_diff.dds
+map_bump E:\tezza\Desktop\sponzaScene\objects\sponzaScene\sponzaTextures\sponza_arch_ddna.dds
+
+newmtl floor_SUB
+Ka 0.219526 0.097587 0.054480
+Kd 0.219526 0.097587 0.054480
+Ks 0.015996 0.015996 0.015996
+Ns 1.000000
+d 1.000000
+illum 2
+map_Kd E:\tezza\Desktop\sponzaScene\textures\generic\concrete\floor_tile_dirty_diff.dds
+map_bump E:\tezza\Desktop\sponzaScene\textures\generic\concrete\floor_tile_dirty_ddna.dds
+disp E:\tezza\Desktop\sponzaScene\textures\generic\concrete\floor_tile_dirty_displ.dds
+
+newmtl roundColumn_SUB
+Ka 0.356400 0.266356 0.212231
+Kd 0.356400 0.266356 0.212231
+Ks 0.000000 0.000000 0.000000
+Ns 0.039216
+d 1.000000
+illum 2
+map_Kd E:\tezza\Desktop\sponzaScene\objects\sponzaScene\sponzaTextures\sponza_column_b_diff.dds
+map_bump E:\tezza\Desktop\sponzaScene\objects\sponzaScene\sponzaTextures\sponza_column_b_ddna.dds
+map_Ks E:\tezza\Desktop\sponzaScene\objects\sponzaScene\sponzaTextures\sponza_column_b_spec.dds
+map_Ns E:\tezza\Desktop\sponzaScene\objects\sponzaScene\sponzaTextures\sponza_column_b_spec.dds
+
+newmtl pillar_SUB
+Ka 0.187821 0.130137 0.097587
+Kd 0.187821 0.130137 0.097587
+Ks 0.000000 0.000000 0.000000
+Ns 0.039216
+d 1.000000
+illum 2
+map_Kd E:\tezza\Desktop\sponzaScene\objects\sponzaScene\sponzaTextures\sponza_column_c_diff.dds
+map_bump E:\tezza\Desktop\sponzaScene\objects\sponzaScene\sponzaTextures\sponza_column_c_ddna.dds
+
+newmtl doorway_SUB
+Ka 0.195122 0.195122 0.195122
+Kd 0.195122 0.195122 0.195122
+Ks 0.000000 0.000000 0.000000
+Ns 0.039216
+d 1.000000
+illum 2
+map_Kd E:\tezza\Desktop\sponzaScene\objects\sponzaScene\sponzaTextures\sponza_details_diff.dds
+map_bump E:\tezza\Desktop\sponzaScene\objects\sponzaScene\sponzaTextures\sponza_details_ddna.dds
+map_Ks E:\tezza\Desktop\sponzaScene\objects\sponzaScene\sponzaTextures\sponza_details_spec.dds
+map_Ns E:\tezza\Desktop\sponzaScene\objects\sponzaScene\sponzaTextures\sponza_details_spec.dds
+
+newmtl shingles_SUB
+Ka 0.300544 0.162029 0.088656
+Kd 0.300544 0.162029 0.088656
+Ks 0.029557 0.029557 0.029557
+Ns 1.000000
+d 1.000000
+illum 2
+map_Kd E:\tezza\Desktop\sponzaScene\objects\sponzaScene\sponzaTextures\sponza_roof_diff.dds
+map_bump E:\tezza\Desktop\sponzaScene\textures\generic\brick\brick_smooth_moss_ddna.dds
+
+newmtl lionHead_SUB
+Ka 0.407240 0.351533 0.309469
+Kd 0.407240 0.351533 0.309469
+Ks 0.033105 0.033105 0.033105
+Ns 0.039216
+d 1.000000
+illum 2
+map_Kd E:\tezza\Desktop\sponzaScene\objects\sponzaScene\sponzaTextures\lion_diff.dds
+map_bump E:\tezza\Desktop\sponzaScene\objects\sponzaScene\sponzaTextures\lion2_ddn.dds
+
+newmtl lionBack_SUB
+Ka 0.304987 0.246201 0.205079
+Kd 0.304987 0.246201 0.205079
+Ks 0.040915 0.040915 0.040915
+Ns 0.039216
+d 1.000000
+illum 2
+map_Kd E:\tezza\Desktop\sponzaScene\objects\sponzaScene\sponzaTextures\background_diff.dds
+map_bump E:\tezza\Desktop\sponzaScene\objects\sponzaScene\sponzaTextures\background_ddn.dds
+
+newmtl curtainPole_SUB
+Ka 1.000000 1.000000 1.000000
+Kd 1.000000 1.000000 1.000000
+Ks 0.057805 0.057805 0.057805
+Ns 1.000000
+d 1.000000
+illum 2
+map_Kd E:\tezza\Desktop\sponzaScene\objects\pbs_reference\conductor_diff.dds
+map_bump E:\tezza\Desktop\sponzaScene\objects\pbs_reference\galvanized_steel_ddna.dds
+map_Ks E:\tezza\Desktop\sponzaScene\objects\pbs_reference\galvanized_steel_spec.dds
+map_Ns E:\tezza\Desktop\sponzaScene\objects\pbs_reference\galvanized_steel_spec.dds
+
+newmtl curtainFabric1_SUB
+Ka 0.496933 0.496933 0.496933
+Kd 0.496933 0.496933 0.496933
+Ks 0.046665 0.046665 0.046665
+Ns 1.000000
+d 1.000000
+illum 2
+map_Kd E:\tezza\Desktop\sponzaScene\objects\sponzaScene\sponzaTextures\sponza_curtain_diff.dds
+map_bump E:\tezza\Desktop\sponzaScene\objects\pbs_reference\gloss10_ddna.dds
+map_bump E:\tezza\Desktop\sponzaScene\textures\detail_bumpmaps\fabric\fabric_b_detail.dds
+
+newmtl curtainFabric2_SUB
+Ka 0.212231 0.212231 0.212231
+Kd 0.212231 0.212231 0.212231
+Ks 0.046665 0.046665 0.046665
+Ns 1.000000
+d 1.000000
+illum 2
+map_Kd E:\tezza\Desktop\sponzaScene\objects\sponzaScene\sponzaTextures\sponza_curtain_blue_diff.dds
+map_bump E:\tezza\Desktop\sponzaScene\objects\pbs_reference\gloss10_ddna.dds
+map_bump E:\tezza\Desktop\sponzaScene\textures\detail_bumpmaps\fabric\fabric_b_detail.dds
+
+newmtl curtainFabric3_SUB
+Ka 0.212231 0.212231 0.212231
+Kd 0.212231 0.212231 0.212231
+Ks 0.046665 0.046665 0.046665
+Ns 0.878431
+d 1.000000
+illum 2
+map_Kd E:\tezza\Desktop\sponzaScene\objects\sponzaScene\sponzaTextures\sponza_curtain_green_diff.dds
+map_bump E:\tezza\Desktop\sponzaScene\objects\pbs_reference\gloss10_ddna.dds
+map_bump E:\tezza\Desktop\sponzaScene\textures\detail_bumpmaps\fabric\fabric_b_detail.dds
+
+newmtl bannerFabric1_SUB
+Ka 0.496933 0.496933 0.496933
+Kd 0.496933 0.496933 0.496933
+Ks 0.046665 0.046665 0.046665
+Ns 0.274510
+d 1.000000
+illum 2
+map_Kd E:\tezza\Desktop\sponzaScene\objects\sponzaScene\sponzaTextures\sponza_fabric_blue_diff.dds
+map_bump E:\tezza\Desktop\sponzaScene\objects\pbs_reference\plain_fabric_ddna.dds
+
+newmtl bannerFabric2_SUB
+Ka 0.496933 0.496933 0.496933
+Kd 0.496933 0.496933 0.496933
+Ks 0.046665 0.046665 0.046665
+Ns 0.274510
+d 1.000000
+illum 2
+map_Kd E:\tezza\Desktop\sponzaScene\objects\sponzaScene\sponzaTextures\sponza_fabric_green_diff.dds
+map_bump E:\tezza\Desktop\sponzaScene\objects\pbs_reference\plain_fabric_ddna.dds
+
+newmtl bannerFabric3_SUB
+Ka 0.496933 0.496933 0.496933
+Kd 0.496933 0.496933 0.496933
+Ks 0.046665 0.046665 0.046665
+Ns 0.274510
+d 1.000000
+illum 2
+map_Kd E:\tezza\Desktop\sponzaScene\objects\sponzaScene\sponzaTextures\sponza_fabric_diff.dds
+map_bump E:\tezza\Desktop\sponzaScene\objects\pbs_reference\gloss30_ddna.dds
+map_bump E:\tezza\Desktop\sponzaScene\textures\detail_bumpmaps\fabric\fabric_b_detail.dds
+

@@ -38,7 +38,7 @@ GBuffers main(VertToPixel i)
 	
 	GBuffers o;
 
-	o.albedo = (g_matUseDiffuse) ? diffuse : float4(1.0f, 1.0f, 1.0f, 1.0f);
+	o.albedo = (g_matUseDiffuse || false) ? diffuse : float4(1.0f, 1.0f, 1.0f, 1.0f);
 
 	if (g_matUseAlphaCutout) {
 		o.albedo.a = alphaCutoutTexture.Sample(alphaCutoutSampler, i.texcoord).r;

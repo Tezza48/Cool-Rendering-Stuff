@@ -20,6 +20,7 @@
 #include <iomanip>
 #include <thread>
 #include <unordered_map>
+#include <filesystem>
 
 #include <DirectXMath.h>
 #include <DirectXColors.h>
@@ -900,18 +901,27 @@ private:
 			outPath += path.C_Str();
 
 			std::cout << outPath << std::endl;
-			
-			int width, height, bpp;
-			byte* textureData = stbi_load(outPath.c_str(), &width, &height, &bpp, STBI_rgb_alpha);
-			if (!textureData) {
-				std::stringstream errorString("Failed to load texture ");
-				errorString << outPath << " because " << stbi_failure_reason();
-				throw std::runtime_error(errorString.str());
+
+			std::filesystem::path asPath(outPath);
+			auto extension = asPath.extension();
+			if (extension == ".dds") {
+				std::cout << "Cant support DDS just yet." << outPath << std::endl;
+				outPath.clear();
+				outEnabled = false;
+				return;
 			}
+			else {
+				int width, height, bpp;
+				byte* textureData = stbi_load(outPath.c_str(), &width, &height, &bpp, STBI_rgb_alpha);
+				if (!textureData) {
+					std::stringstream errorString("Failed to load texture ");
+					errorString << outPath << " because " << stbi_failure_reason();
+					throw std::runtime_error(errorString.str());
+				}
 
-			textureCache[outPath] = new Texture(device, context, outPath, width, height, bpp, textureData);
-
-			stbi_image_free(textureData);
+				textureCache[outPath] = new Texture(device, context, outPath, width, height, bpp, textureData);
+				stbi_image_free(textureData);
+			}
 
 			outEnabled = true;
 		}
