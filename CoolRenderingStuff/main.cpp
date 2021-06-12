@@ -21,6 +21,7 @@
 #include <thread>
 #include <unordered_map>
 #include <filesystem>
+#include <set>
 
 #include <DirectXMath.h>
 #include <DirectXColors.h>
@@ -203,6 +204,136 @@ struct PerFrameUniforms {
 	DirectX::XMMATRIX viewProj;
 };
 
+struct ComponentMovesInCircle {
+	XMFLOAT3 origin;
+	float radius = 1.0f;
+};
+
+class Application;
+
+struct ResourceImguiLifetime {
+	void Cleanup() {
+		ImGui_ImplDX11_Shutdown();
+		ImGui_ImplGlfw_Shutdown();
+		ImGui::DestroyContext();
+	}
+};
+
+struct ComponentRenderModel {
+	std::string path;
+};
+
+struct ECS;
+bool system_setup_graphics_core(ECS* ecs);
+bool system_setup_imgui(ECS* ecs);
+bool system_start(ECS* ecs);
+bool system_move_in_circle(ECS* ecs);
+bool system_draw_imgui_debug_ui(ECS* ecs);
+bool system_draw_loaded_model(ECS* ecs);
+bool system_draw_lights(ECS* ecs);
+bool system_post_draw(ECS* ecs);
+
+struct ResourceGraphicsCore {
+	ID3D11Device* device;
+	ID3D11DeviceContext* context;
+	uint32_t numSwapChainBuffers;
+	IDXGISwapChain* swapChain;
+	DXGI_FORMAT swapChainFormat = DXGI_FORMAT_UNKNOWN;
+
+	ID3D11Texture2D* depthTexture;
+	ID3D11DepthStencilView* depthStencilView;
+
+	void Cleanup() {
+		depthTexture->Release();
+		depthStencilView->Release();
+
+		swapChain->Release();
+		context->Release();
+		device->Release();
+	}
+};
+
+//struct ResourceWindow {
+//	GLFWwindow* window;
+//
+//	void Init()
+//
+//	void Cleanup() {
+//
+//	}
+//};
+
+struct ECS {
+	using System = bool(ECS* ecs);
+	std::vector<System*> systems = {
+		system_start,
+		//system_move_in_circle,
+		system_draw_imgui_debug_ui,
+		system_draw_loaded_model,
+		system_draw_lights,
+		system_post_draw
+		// TODO WT: system_draw_deferred, system_draw_lights
+	};
+
+	int nextEntity = 0;
+
+	// Resources
+	Application* application;
+
+	//ResourceWindow window;
+	ResourceImguiLifetime imguiLifetime;
+	ResourceGraphicsCore graphicsCore;
+	std::unordered_map<std::string, std::vector<Mesh>> modelCache;
+	std::unordered_map<std::string, std::vector<Material>> materialCache;
+
+	std::unordered_map<std::string, Texture*> textureCache;
+
+	// Components
+	std::vector<std::optional<Light>> lights;
+	std::vector<std::optional<ComponentMovesInCircle>> movesInCircle;
+
+	void Cleanup() {
+		for (auto texture : textureCache) {
+			delete texture.second;
+		}
+
+		for (auto meshes : modelCache) {
+			for (auto mesh : meshes.second) {
+				mesh.vertices->Release();
+				mesh.indices->Release();
+			}
+		}
+
+		// Delete pipelines
+
+
+		imguiLifetime.Cleanup();
+		graphicsCore.Cleanup();
+	}
+
+	int addEntity() {
+		lights.emplace_back();
+		movesInCircle.emplace_back();
+
+		return nextEntity++;
+	}
+
+	void run() {
+		std::vector<std::vector<System*>::iterator> toRemove;
+
+		for (auto systemIt = systems.begin(); systemIt != systems.end(); systemIt++) {
+			if (!(*systemIt)(this)) {
+				toRemove.push_back(systemIt);
+			}
+		}
+
+		for (const auto& it : toRemove) {
+			systems.erase(it);
+		}
+	}
+};
+
+
 class Application {
 public:
 	static void GlfwErrorCallback(int error, const char* description) {
@@ -285,21 +416,13 @@ public:
 	}
 
 public:
-protected:
-private:
+//protected:
+//private:
 	GLFWwindow* window;
-
-	ID3D11Device* device;
-	ID3D11DeviceContext* context;
-	uint32_t numSwapChainBuffers;
-	IDXGISwapChain* swapChain;
-	DXGI_FORMAT swapChainFormat = DXGI_FORMAT_UNKNOWN;
 
 	GraphicsPipeline *deferredGraphicsPipeline;
 	GraphicsPipeline *lightingGraphicsPipeline;
 
-	ID3D11Texture2D* depthTexture;
-	ID3D11DepthStencilView* depthStencilView;
 
 	float yaw;
 	float pitch;
@@ -314,20 +437,21 @@ private:
 	ID3D11SamplerState* gbufferSampler;
 	GeometryBuffer geometryBuffer;
 
-	std::unordered_map<std::string, Texture*> textureCache;
-
-	std::vector<Mesh> loadedMesh;
-	std::vector<Material> loadedMaterials;
-
 	Lighting* lighting;
 
 	std::vector<Light> lights;
 
+	ECS ecs;
+
 public:
 	Application() {
+		// TODO WT: Application should be owned by ECS. (or it's members made into individual resources/components)
+		ecs.application = this;
 		createWindow();
-		createDeviceAndSwapChain();
-		initImgui();
+
+		system_setup_graphics_core(&ecs);
+		system_setup_imgui(&ecs);
+
 		createDeferredGraphicsPipeline();
 		createLightingGraphicsPipeline();
 		createConstantBuffers();
@@ -335,56 +459,16 @@ public:
 
 		loadModel();
 
-		lighting = new Lighting(device);
-
-		XMVECTOR colors[] = {
-			Colors::Red,
-			Colors::Green,
-			Colors::Blue,
-			Colors::Cyan,
-			Colors::Magenta,
-			Colors::Yellow,
-		};
-
-		lights.push_back(Light(XMFLOAT3(0.0f, 1.0f, 0.0f), 2.0f, XMFLOAT3(1.0f, 1.0f, 1.0f), 1.0f, XMFLOAT4(0.1f, 0.1f, 0.1f, 1.0f)));
-
-		for (size_t i = 1; i < 50; i++)
-		{
-			float rand0 = (float)rand() / RAND_MAX;
-			float rand1 = (float)rand() / RAND_MAX;
-			float rand2 = (float)rand() / RAND_MAX;
-			lights.push_back(Light(
-				XMFLOAT3 { rand0 * 30.0f - 15.0f, rand2 * 10.0f, rand1 * 20.0f - 10.0f },
-				5.0f,
-				XMFLOAT3 { 1.0f, 1.0f, 1.0f },
-				1.0f,
-				XMFLOAT4 { 0.0f, 0.0f, 0.0f, 0.0f}
-			));
-			XMStoreFloat3(&lights[i].color, colors[i % 6]);
-		}
+		lighting = new Lighting(ecs.graphicsCore.device);
 	}
 
 	~Application() {
-		for (auto texture : textureCache) {
-			delete texture.second;
-		}
-
-		for (auto mesh : loadedMesh) {
-			mesh.vertices->Release();
-			mesh.indices->Release();
-		}
 		delete lighting;
 
 		delete lightingGraphicsPipeline;
 		delete deferredGraphicsPipeline;
 
-		ImGui_ImplDX11_Shutdown();
-		ImGui_ImplGlfw_Shutdown();
-		ImGui::DestroyContext();
-
-		swapChain->Release();
-		context->Release();
-		device->Release();
+		ecs.Cleanup();
 
 		glfwDestroyWindow(window);
 		glfwTerminate();
@@ -400,11 +484,12 @@ public:
 			ImGui::NewFrame();
 
 			updateFrame();
-			drawFrame();
+			ecs.run();
+
 		}
 	}
-protected:
-private:
+//protected:
+//private:
 	void createWindow() {
 		if (!glfwInit()) {
 			throw std::runtime_error("Failed to init glfw");
@@ -427,106 +512,6 @@ private:
 		glfwSetCursorPosCallback(window, GlfwCursorPosCallback);
 		glfwSetKeyCallback(window, GlfwKeyCallback);
 		glfwSetMouseButtonCallback(window, GlfwMouseButtonCallback);
-	}
-
-	void createDeviceAndSwapChain() {
-		uint32_t flags = D3D11_CREATE_DEVICE_SINGLETHREADED;
-
-#if DEBUG || _DEBUG
-		flags |= D3D11_CREATE_DEVICE_DEBUG;
-#endif
-
-		D3D_FEATURE_LEVEL featureLevels[] = {
-			D3D_FEATURE_LEVEL_11_1,
-			D3D_FEATURE_LEVEL_11_0
-		};
-
-		int32_t width, height;
-		glfwGetWindowSize(window, &width, &height);
-
-		numSwapChainBuffers = 2;
-		swapChainFormat = DXGI_FORMAT_B8G8R8A8_UNORM;
-		//multisampleFormat = DXGI_FORMAT_B8G8R8A8_UNORM_SRGB;
-
-		HWND hwnd = glfwGetWin32Window(window);
-
-		DXGI_SWAP_CHAIN_DESC swapChainDesc{};
-		swapChainDesc.BufferDesc.Width = static_cast<uint32_t>(width);
-		swapChainDesc.BufferDesc.Height = static_cast<uint32_t>(height);
-		swapChainDesc.BufferDesc.RefreshRate.Numerator = 1;
-		swapChainDesc.BufferDesc.RefreshRate.Denominator = 60;
-		swapChainDesc.BufferDesc.ScanlineOrdering = DXGI_MODE_SCANLINE_ORDER_UNSPECIFIED;
-		swapChainDesc.BufferDesc.Scaling = DXGI_MODE_SCALING_UNSPECIFIED;
-		swapChainDesc.BufferDesc.Format = swapChainFormat;
-		swapChainDesc.SampleDesc.Count = 1;
-		swapChainDesc.SampleDesc.Quality = 0;
-		swapChainDesc.BufferUsage = DXGI_USAGE_RENDER_TARGET_OUTPUT;
-		swapChainDesc.BufferCount = numSwapChainBuffers; // TODO WT: 3 buffers for mailbox?
-		swapChainDesc.OutputWindow = hwnd;
-		swapChainDesc.Windowed = true;
-		swapChainDesc.SwapEffect = DXGI_SWAP_EFFECT_FLIP_DISCARD;
-		swapChainDesc.Flags = 0;
-
-		auto hr = D3D11CreateDeviceAndSwapChain(
-			nullptr,
-			D3D_DRIVER_TYPE_HARDWARE,
-			nullptr,
-			flags,
-			featureLevels,
-			ARRAYSIZE(featureLevels),
-			D3D11_SDK_VERSION,
-			&swapChainDesc,
-			&swapChain,
-			&device,
-			nullptr,
-			&context);
-
-		if (FAILED(hr)) {
-			std::stringstream error("Failed to create device and swap chain! ");
-			error << std::hex << hr << std::endl;
-
-			throw std::runtime_error(error.str());
-		}
-
-		// TODO WT: Resize depth texture
-		D3D11_TEXTURE2D_DESC depthTextureDesc;
-		depthTextureDesc.Width = width;
-		depthTextureDesc.Height = height;
-		depthTextureDesc.MipLevels = 1;
-		depthTextureDesc.ArraySize = 1;
-		depthTextureDesc.Format = DXGI_FORMAT_R24G8_TYPELESS;
-		depthTextureDesc.SampleDesc.Count = 1;
-		depthTextureDesc.SampleDesc.Quality = 0;
-		depthTextureDesc.Usage = D3D11_USAGE_DEFAULT;
-		depthTextureDesc.BindFlags = D3D11_BIND_DEPTH_STENCIL | D3D11_BIND_SHADER_RESOURCE;
-		depthTextureDesc.CPUAccessFlags = 0;
-		depthTextureDesc.MiscFlags = 0;
-
-		hr = device->CreateTexture2D(&depthTextureDesc, nullptr, &depthTexture);
-		if (FAILED(hr)) {
-			throw std::runtime_error("Failed to create depth texture!");
-		}
-
-		D3D11_DEPTH_STENCIL_VIEW_DESC dsvDesc = {};
-		dsvDesc.Format = DXGI_FORMAT_D24_UNORM_S8_UINT;
-		dsvDesc.ViewDimension = D3D11_DSV_DIMENSION_TEXTURE2D;
-		dsvDesc.Texture2D.MipSlice = 0;
-
-		hr = device->CreateDepthStencilView(depthTexture, &dsvDesc, &depthStencilView);
-		if (FAILED(hr)) {
-			throw std::runtime_error("Failed to create depth texture RTV!");
-		}
-	}
-
-	void initImgui() {
-		IMGUI_CHECKVERSION();
-		ImGui::CreateContext();
-		ImGuiIO& io = ImGui::GetIO(); (void)io;
-
-		ImGui::StyleColorsDark();
-
-		ImGui_ImplGlfw_InitForOther(window, true);
-		ImGui_ImplDX11_Init(device, context);
 	}
 
 	void createDeferredGraphicsPipeline() {
@@ -602,7 +587,7 @@ private:
 		}
 
 		deferredGraphicsPipeline = new GraphicsPipeline(
-			device,
+			ecs.graphicsCore.device,
 			vertexShaderCode,
 			pixelShaderCode,
 			std::make_optional(inputs),
@@ -682,7 +667,7 @@ private:
 		blendDesc.RenderTarget[0].RenderTargetWriteMask = D3D11_COLOR_WRITE_ENABLE_ALL;
 
 		lightingGraphicsPipeline = new GraphicsPipeline(
-			device,
+			ecs.graphicsCore.device,
 			vertexShaderCode,
 			pixelShaderCode,
 			//std::make_optional(inputs),
@@ -711,7 +696,7 @@ private:
 		samplerDesc.MinLOD = 0.0f;
 		samplerDesc.MaxLOD = D3D11_FLOAT32_MAX;
 
-		if (FAILED(device->CreateSamplerState(&samplerDesc, &gbufferSampler))) {
+		if (FAILED(ecs.graphicsCore.device->CreateSamplerState(&samplerDesc, &gbufferSampler))) {
 			throw std::runtime_error("Failed to create gbuffer sampler");
 		}
 	}
@@ -725,7 +710,7 @@ private:
 		desc.MiscFlags = 0;
 		desc.StructureByteStride = 0;
 
-		if (FAILED(device->CreateBuffer(&desc, nullptr, &perFrameUniformsBuffer))) {
+		if (FAILED(ecs.graphicsCore.device->CreateBuffer(&desc, nullptr, &perFrameUniformsBuffer))) {
 			throw std::runtime_error("Failed to create cbuffer!");
 		}
 
@@ -737,7 +722,7 @@ private:
 		matDesc.MiscFlags = 0;
 		matDesc.StructureByteStride = 0;
 
-		if (FAILED(device->CreateBuffer(&matDesc, nullptr, &perMaterialUniformsBuffer))) {
+		if (FAILED(ecs.graphicsCore.device->CreateBuffer(&matDesc, nullptr, &perMaterialUniformsBuffer))) {
 			throw std::runtime_error("Failed to create material settings cbuffer!");
 		}
 	}
@@ -761,7 +746,7 @@ private:
 			textureDesc.CPUAccessFlags = 0;
 			textureDesc.MiscFlags = 0;
 
-			if (FAILED(device->CreateTexture2D(&textureDesc, nullptr, &geometryBuffer.textures[i]))) {
+			if (FAILED(ecs.graphicsCore.device->CreateTexture2D(&textureDesc, nullptr, &geometryBuffer.textures[i]))) {
 				throw std::runtime_error("Failed to create gbuffer texture!");
 			}
 
@@ -770,7 +755,7 @@ private:
 			rtvDesc.ViewDimension = D3D11_RTV_DIMENSION_TEXTURE2D;
 			rtvDesc.Texture2D.MipSlice = 0;
 
-			if (FAILED(device->CreateRenderTargetView(geometryBuffer.textures[i], &rtvDesc, &geometryBuffer.textureViews[i]))) {
+			if (FAILED(ecs.graphicsCore.device->CreateRenderTargetView(geometryBuffer.textures[i], &rtvDesc, &geometryBuffer.textureViews[i]))) {
 				throw std::runtime_error("Failed to create gbuffer RTV!");
 			}
 
@@ -780,7 +765,7 @@ private:
 			srvDesc.Texture2D.MipLevels = 1;
 			srvDesc.Texture2D.MostDetailedMip = 0;
 
-			if (FAILED(device->CreateShaderResourceView(geometryBuffer.textures[i], &srvDesc, &geometryBuffer.textureResourceViews[i]))) {
+			if (FAILED(ecs.graphicsCore.device->CreateShaderResourceView(geometryBuffer.textures[i], &srvDesc, &geometryBuffer.textureResourceViews[i]))) {
 				throw std::runtime_error("Failed to create gbuffer SRV!");
 			}
 		}
@@ -795,12 +780,16 @@ private:
 		stbi_set_flip_vertically_on_load(true);
 
 		std::string basePath = "assets/crytekSponza_fbx/";
+		std::string fullPath = basePath + "sponza.fbx";
 
-		const aiScene* scene = importer->ReadFile(basePath + "sponza.fbx", aiProcess_CalcTangentSpace | aiProcess_Triangulate | aiProcess_JoinIdenticalVertices);
+		const aiScene* scene = importer->ReadFile(fullPath, aiProcess_CalcTangentSpace | aiProcess_Triangulate | aiProcess_JoinIdenticalVertices);
 
-		std::cout << "\n Loaded\n";
+		//std::cout << "\n Loaded\n";
 
-		loadedMaterials.reserve(scene->mNumMaterials);
+		ecs.modelCache[fullPath] =  std::vector<Mesh>();//  = std::vector();
+		ecs.materialCache[fullPath] = std::vector<Material>();
+
+		ecs.modelCache[fullPath].reserve(scene->mNumMaterials);
 
 		for (size_t i = 0; i < scene->mNumMaterials; i++) {
 			Material mat;
@@ -810,7 +799,7 @@ private:
 
 			aiString name;
 			if (data->Get(AI_MATKEY_NAME, name) == AI_SUCCESS) {
-				std::cout << "Loading material " << name.C_Str() << std::endl;
+				//std::cout << "Loading material " << name.C_Str() << std::endl;
 				mat.name = name.C_Str();
 			}
 
@@ -823,10 +812,10 @@ private:
 			if (!mat.settings.useSpecularTexture)
 				loadTexture(aiTextureType_DIFFUSE_ROUGHNESS, data, basePath, mat.specularTexture, (bool&)mat.settings.useSpecularTexture);
 
-			loadedMaterials.push_back(mat);
+			ecs.materialCache[fullPath].push_back(mat);
 		}
 
-		loadedMesh.reserve(scene->mNumMeshes);
+		ecs.modelCache[fullPath].reserve(scene->mNumMeshes);
 
 		for (size_t i = 0; i < scene->mNumMeshes; i++) {
 			Mesh mesh;
@@ -853,7 +842,7 @@ private:
 			vertData.pSysMem = vertices.data();
 
 			mesh.numVertices = data->mNumVertices;
-			auto vbHR = device->CreateBuffer(&vDesc, &vertData, &mesh.vertices);
+			auto vbHR = ecs.graphicsCore.device->CreateBuffer(&vDesc, &vertData, &mesh.vertices);
 
 			std::string vbufferName(data->mName.C_Str());
 			vbufferName += "_VertexBuffer";
@@ -873,7 +862,7 @@ private:
 			indexData.pSysMem = indices.data();
 
 			mesh.indexCount = numIndices;
-			auto ibHF = device->CreateBuffer(&iDesc, &indexData, &mesh.indices);
+			auto ibHF = ecs.graphicsCore.device->CreateBuffer(&iDesc, &indexData, &mesh.indices);
 
 			std::string ibufferName(data->mName.C_Str());
 			ibufferName += "_IndexBuffer";
@@ -883,7 +872,7 @@ private:
 
 			mesh.materialId = data->mMaterialIndex;
 
-			loadedMesh.push_back(mesh);
+			ecs.modelCache[fullPath].push_back(mesh);
 		}
 
 		importer->FreeScene();
@@ -919,7 +908,7 @@ private:
 					throw std::runtime_error(errorString.str());
 				}
 
-				textureCache[outPath] = new Texture(device, context, outPath, width, height, bpp, textureData);
+				ecs.textureCache[outPath] = new Texture(ecs.graphicsCore.device, ecs.graphicsCore.context, outPath, width, height, bpp, textureData);
 				stbi_image_free(textureData);
 			}
 
@@ -996,193 +985,11 @@ private:
 		perFrameUniforms.view = view;
 		XMMATRIX proj;
 
-		float time = static_cast<float>(glfwGetTime());
-
-		lights[0].position.x = std::cosf(time) * 2.0f;
-		lights[0].position.z = -std::sin(time) * 2.0f;
-
 		proj = XMMatrixPerspectiveFovLH(45.0f, static_cast<float>(width) / height, 0.1f, 1000.0f);
 		perFrameUniforms.viewProj = perFrameUniforms.view * proj;
 	}
 
-	void drawFrame() {
-		int width, height;
-		glfwGetWindowSize(window, &width, &height);
-
-		if (ImGui::BeginMainMenuBar()) {
-			ImVec2 mainMenuSize = ImGui::GetWindowSize();
-
-			deferredGraphicsPipeline->scissor.top = lightingGraphicsPipeline->scissor.top = static_cast<uint64_t>(mainMenuSize.y);
-
-			static int currentVisualizedBuffer = -1;
-			if (ImGui::BeginMenu("Visualize Buffer")) {
-				if (ImGui::MenuItem("Position", nullptr, currentVisualizedBuffer == GeometryBuffer::Buffer::POSITION)) currentVisualizedBuffer = GeometryBuffer::Buffer::POSITION;
-				if (ImGui::MenuItem("Normals", nullptr, currentVisualizedBuffer == GeometryBuffer::Buffer::NORMAL)) currentVisualizedBuffer = GeometryBuffer::Buffer::NORMAL;
-				if (ImGui::MenuItem("Albedo", nullptr, currentVisualizedBuffer == GeometryBuffer::Buffer::ALBEDO)) currentVisualizedBuffer = GeometryBuffer::Buffer::ALBEDO;
-				if (ImGui::MenuItem("Specular", nullptr, currentVisualizedBuffer == GeometryBuffer::Buffer::SPECULAR)) currentVisualizedBuffer = GeometryBuffer::Buffer::SPECULAR;
-				if (ImGui::MenuItem("None", nullptr, currentVisualizedBuffer == -1)) currentVisualizedBuffer = -1;
-				ImGui::EndMenu();
-			}
-
-			if (ImGui::MenuItem("Recompile Shaders")) {
-				RecompileShaders();
-			}
-
-			ImGui::EndMainMenuBar();
-
-			if (currentVisualizedBuffer >= 0) {
-				ImGui::SetNextWindowPos({ 0.0f, 0.0f });
-				ImGui::SetNextWindowSize({ (float)width, (float)height });
-				ImGui::PushStyleVar(ImGuiStyleVar_WindowPadding, ImVec2());
-				ImGui::SetNextWindowContentSize({ (float)width, (float)height - mainMenuSize.y });
-				if (ImGui::Begin("Visualize", nullptr, ImGuiWindowFlags_NoCollapse | ImGuiWindowFlags_NoResize | ImGuiWindowFlags_NoDecoration | ImGuiWindowFlags_NoMouseInputs | ImGuiWindowFlags_NoBringToFrontOnFocus)) {
-					ImGui::Image(geometryBuffer.textureResourceViews[currentVisualizedBuffer], ImGui::GetWindowSize());
-
-					ImGui::End();
-				}
-			}
-		}
-
-
-		//ImGui::Begin("Render Targets");
-		//auto size = ImGui::GetItemRectSize();
-		//ImGui::Text("GBuffer");
-		//float imgWidth = size.x, imgHeight = size.x * height / width;
-		//for (size_t i = 0; i < GeometryBuffer::MAX_BUFFER; i++) {
-		//	ImGui::Image(geometryBuffer.textureResourceViews[i], { imgWidth, imgHeight });
-		//}
-		//ImGui::End();
-
-		deferredGraphicsPipeline->bind(context);
-		//context->ClearRenderTargetView(multisampleRTV, clearColor);
-		//context->OMSetRenderTargets(1, &multisampleRTV, nullptr);
-
-		D3D11_MAPPED_SUBRESOURCE mapped{};
-		context->Map(perFrameUniformsBuffer, 0, D3D11_MAP_WRITE_DISCARD, 0, &mapped);
-		memcpy(mapped.pData, &perFrameUniforms, sizeof(PerFrameUniforms));
-		context->Unmap(perFrameUniformsBuffer, 0);
-
-		float clearColor[4] = { 0.0f, 0.0f, 0.0f, 1.0f };
-		for (size_t i = 0; i < GeometryBuffer::MAX_BUFFER; i++)
-		{
-			context->ClearRenderTargetView(geometryBuffer.textureViews[i], clearColor);
-		}
-		context->ClearDepthStencilView(depthStencilView, D3D11_CLEAR_DEPTH | D3D11_CLEAR_STENCIL, 1.0, 0);
-		context->OMSetRenderTargets(GeometryBuffer::MAX_BUFFER, geometryBuffer.textureViews, depthStencilView);
-
-		// Deferred passes to geometry buffer
-		context->VSSetConstantBuffers(0, 1, &perFrameUniformsBuffer);
-		context->PSSetConstantBuffers(0, 1, &perFrameUniformsBuffer);
-
-		uint32_t strides = sizeof(Vertex);
-		uint32_t offsets = 0;
-
-		//context->IASetVertexBuffers(0, 1, &vertices, &strides, &offsets);
-		//context->IASetIndexBuffer(indices, DXGI_FORMAT_R32_UINT, 0);
-		//context->DrawIndexed(numIndices, 0, 0);
-
-		ID3D11SamplerState* nullSampler = nullptr;
-		ID3D11ShaderResourceView* nullTexture = nullptr;
-
-		for (const auto& mesh : loadedMesh) {
-			auto& mat = loadedMaterials[mesh.materialId];
-
-			ID3D11ShaderResourceView* views[] = {
-				(mat.settings.useDiffuseTexture) ? textureCache[mat.diffuseTexture]->textureSRV : nullptr,
-				(mat.settings.useNormalTexture) ? textureCache[mat.normalTexture]->textureSRV : nullptr,
-				(mat.settings.useAlphaCutoutTexture) ? textureCache[mat.alphaCutoutTexture]->textureSRV : nullptr,
-				(mat.settings.useSpecularTexture) ? textureCache[mat.specularTexture]->textureSRV : nullptr,
-			};
-
-			ID3D11SamplerState* samplers[] = {
-				(mat.settings.useDiffuseTexture) ? textureCache[mat.diffuseTexture]->sampler : nullptr,
-				(mat.settings.useNormalTexture) ? textureCache[mat.normalTexture]->sampler : nullptr,
-				(mat.settings.useAlphaCutoutTexture) ? textureCache[mat.alphaCutoutTexture]->sampler : nullptr,
-				(mat.settings.useSpecularTexture) ? textureCache[mat.specularTexture]->sampler : nullptr,
-			};
-
-			context->PSSetShaderResources(0, 4, views);
-			context->PSSetSamplers(0, 4, samplers);
-
-			//if (mat.settings.useDiffuseTexture) {
-			//	auto tex = textureCache[mat.diffuseTexture];
-
-			//	context->PSSetSamplers(0, 1, &tex->sampler);
-			//	context->PSSetShaderResources(0, 1, &tex->textureSRV);
-			//}
-
-			//if (mat.settings.useNormalTexture) {
-			//	auto tex = textureCache[mat.normalTexture];
-
-			//	context->PSSetSamplers(1, 1, &tex->sampler);
-			//	context->PSSetShaderResources(1, 1, &tex->textureSRV);
-			//}
-
-			//if (mat.settings.useAlphaCutoutTexture) {
-			//	auto tex = textureCache[mat.alphaCutoutTexture];
-
-			//	context->PSSetSamplers(2, 1, &tex->sampler);
-			//	context->PSSetShaderResources(2, 1, &tex->textureSRV);
-			//}
-
-			D3D11_MAPPED_SUBRESOURCE mappedSettings{};
-			context->Map(perMaterialUniformsBuffer, 0, D3D11_MAP_WRITE_DISCARD, 0, &mappedSettings);
-			memcpy(mappedSettings.pData, &mat.settings, sizeof(MaterialCbuffer));
-			context->Unmap(perMaterialUniformsBuffer, 0);
-
-			context->PSSetConstantBuffers(1, 1, &perMaterialUniformsBuffer);
-
-			context->IASetVertexBuffers(0, 1, &mesh.vertices, &strides, &offsets);
-			context->IASetIndexBuffer(mesh.indices, DXGI_FORMAT_R32_UINT, 0);
-			context->DrawIndexed(mesh.indexCount, 0, 0);
-		}
-
-		// Light accumulation pass to the backbuffer
-		ID3D11Texture2D* backBuffer;
-		if (FAILED(swapChain->GetBuffer(0, IID_PPV_ARGS(&backBuffer)))) {
-			throw std::runtime_error("Failed to get a back buffer!");
-		}
-
-		ID3D11RenderTargetView* renderTarget;
-
-		D3D11_RENDER_TARGET_VIEW_DESC rtvDesc{};
-		rtvDesc.Format = swapChainFormat;
-		rtvDesc.ViewDimension = D3D11_RTV_DIMENSION_TEXTURE2D;
-		rtvDesc.Texture2D.MipSlice = 0;
-
-		if (FAILED(device->CreateRenderTargetView(backBuffer, &rtvDesc, &renderTarget))) {
-			throw std::runtime_error("Failed to create backbuffer RTV!");
-		}
-
-		backBuffer->Release();
-
-		context->ClearRenderTargetView(renderTarget, clearColor);
-		context->OMSetRenderTargets(1, &renderTarget, nullptr);
-
-		lightingGraphicsPipeline->bind(context);
-		context->PSSetShaderResources(0, GeometryBuffer::MAX_BUFFER, geometryBuffer.textureResourceViews);
-
-		context->PSSetSamplers(0, 1, &gbufferSampler);
-
-		// Draw light mesh
-		for (size_t i = 0; i < lights.size(); i++)
-		{
-			lighting->DrawPointLight(context, lights[i]);
-		}
-
-		ID3D11ShaderResourceView* nullSRVs[GeometryBuffer::MAX_BUFFER];
-		memset(nullSRVs, 0, sizeof(nullSRVs));
-		context->PSSetShaderResources(0, GeometryBuffer::MAX_BUFFER, nullSRVs);
-
-		//context->ResolveSubresource(backBuffer, 0, multisampleTexture, 0, swapChainFormat);
-
-		ImGui::Render();
-		ImGui_ImplDX11_RenderDrawData(ImGui::GetDrawData());
-
-		swapChain->Present(1, 0);
-		renderTarget->Release();
-	}
-
+	// TODO WT: make events handleable in ecs
 	void RecompileShaders() {
 		// TODO WT: Clean up this memory leak heaven!
 		ID3D11VertexShader* newVertShader;
@@ -1198,7 +1005,7 @@ private:
 			return;
 		}
 
-		device->CreateVertexShader(bytecode->GetBufferPointer(), bytecode->GetBufferSize(), nullptr, &newVertShader);
+		ecs.graphicsCore.device->CreateVertexShader(bytecode->GetBufferPointer(), bytecode->GetBufferSize(), nullptr, &newVertShader);
 		if (errors)
 			errors->Release();
 		bytecode->Release();
@@ -1210,7 +1017,7 @@ private:
 			return;
 		}
 
-		device->CreatePixelShader(bytecode->GetBufferPointer(), bytecode->GetBufferSize(), nullptr, &newPixelShader);
+		ecs.graphicsCore.device->CreatePixelShader(bytecode->GetBufferPointer(), bytecode->GetBufferSize(), nullptr, &newPixelShader);
 		if (errors)
 			errors->Release();
 		bytecode->Release();
@@ -1230,7 +1037,7 @@ private:
 			return;
 		}
 
-		device->CreateVertexShader(bytecode->GetBufferPointer(), bytecode->GetBufferSize(), nullptr, &newVertShader);
+		ecs.graphicsCore.device->CreateVertexShader(bytecode->GetBufferPointer(), bytecode->GetBufferSize(), nullptr, &newVertShader);
 		if (errors)
 			errors->Release();
 		bytecode->Release();
@@ -1242,7 +1049,7 @@ private:
 			return;
 		}
 
-		device->CreatePixelShader(bytecode->GetBufferPointer(), bytecode->GetBufferSize(), nullptr, &newPixelShader);
+		ecs.graphicsCore.device->CreatePixelShader(bytecode->GetBufferPointer(), bytecode->GetBufferSize(), nullptr, &newPixelShader);
 		if (errors)
 			errors->Release();
 		bytecode->Release();
@@ -1256,27 +1063,27 @@ private:
 	}
 
 	void OnWindowResized(uint32_t width, uint32_t height) {
-		swapChain->ResizeBuffers(numSwapChainBuffers, width, height, swapChainFormat, 0);
+		ecs.graphicsCore.swapChain->ResizeBuffers(ecs.graphicsCore.numSwapChainBuffers, width, height, ecs.graphicsCore.swapChainFormat, 0);
 
 		D3D11_TEXTURE2D_DESC dstDesc;
 		D3D11_DEPTH_STENCIL_VIEW_DESC dstViewDesc;
-		depthTexture->GetDesc(&dstDesc);
-		depthStencilView->GetDesc(&dstViewDesc);
+		ecs.graphicsCore.depthTexture->GetDesc(&dstDesc);
+		ecs.graphicsCore.depthStencilView->GetDesc(&dstViewDesc);
 
-		depthTexture->Release();
-		depthStencilView->Release();
+		ecs.graphicsCore.depthTexture->Release();
+		ecs.graphicsCore.depthStencilView->Release();
 
 		dstDesc.Width = width;
 		dstDesc.Height = height;
 
 		HRESULT hr;
-		hr = device->CreateTexture2D(&dstDesc, nullptr, &depthTexture);
-		if (FAILED(hr) || !depthTexture) {
+		hr = ecs.graphicsCore.device->CreateTexture2D(&dstDesc, nullptr, &ecs.graphicsCore.depthTexture);
+		if (FAILED(hr) || !ecs.graphicsCore.depthTexture) {
 			throw std::runtime_error("Failed to create resized Depth Stencil texture!");
 		}
 		
-		hr = device->CreateDepthStencilView(depthTexture, &dstViewDesc, &depthStencilView);
-		if (FAILED(hr) || !depthStencilView) {
+		hr = ecs.graphicsCore.device->CreateDepthStencilView(ecs.graphicsCore.depthTexture, &dstViewDesc, &ecs.graphicsCore.depthStencilView);
+		if (FAILED(hr) || !ecs.graphicsCore.depthStencilView) {
 			throw std::runtime_error("Failed to create resized Depth Stencil View!");
 		}
 
@@ -1302,17 +1109,17 @@ private:
 			texDesc.Width = width;
 			texDesc.Height = height;
 
-			hr = device->CreateTexture2D(&texDesc, nullptr, &geometryBuffer.textures[i]);
+			hr = ecs.graphicsCore.device->CreateTexture2D(&texDesc, nullptr, &geometryBuffer.textures[i]);
 			if (FAILED(hr) || !geometryBuffer.textures[i]) {
 				throw std::runtime_error("Failed to create resized GBuffer texture!");
 			}
 
-			hr = device->CreateRenderTargetView(geometryBuffer.textures[i], &rtvDesc, &geometryBuffer.textureViews[i]);
+			hr = ecs.graphicsCore.device->CreateRenderTargetView(geometryBuffer.textures[i], &rtvDesc, &geometryBuffer.textureViews[i]);
 			if (FAILED(hr) || !geometryBuffer.textureViews[i]) {
 				throw std::runtime_error("Failed to create resized GBuffer texture RTV!");
 			}
 
-			hr = device->CreateShaderResourceView(geometryBuffer.textures[i], &srvDesc, &geometryBuffer.textureResourceViews[i]);
+			hr = ecs.graphicsCore.device->CreateShaderResourceView(geometryBuffer.textures[i], &srvDesc, &geometryBuffer.textureResourceViews[i]);
 			if (FAILED(hr) || !geometryBuffer.textureResourceViews[i]) {
 				throw std::runtime_error("Failed to create resized GBuffer texture! SRV");
 			}
@@ -1326,6 +1133,331 @@ private:
 		lightingGraphicsPipeline->scissor.bottom = height;
 	}
 };
+
+bool system_setup_graphics_core(ECS* ecs) {
+	auto& graphics = ecs->graphicsCore;
+
+	uint32_t flags = D3D11_CREATE_DEVICE_SINGLETHREADED;
+
+#if DEBUG || _DEBUG
+	flags |= D3D11_CREATE_DEVICE_DEBUG;
+#endif
+
+	D3D_FEATURE_LEVEL featureLevels[] = {
+		D3D_FEATURE_LEVEL_11_1,
+		D3D_FEATURE_LEVEL_11_0
+	};
+
+	int32_t width, height;
+	glfwGetWindowSize(ecs->application->window, &width, &height);
+
+	ecs->graphicsCore.numSwapChainBuffers = 2;
+	ecs->graphicsCore.swapChainFormat = DXGI_FORMAT_B8G8R8A8_UNORM;
+	//multisampleFormat = DXGI_FORMAT_B8G8R8A8_UNORM_SRGB;
+
+	HWND hwnd = glfwGetWin32Window(ecs->application->window);
+
+	DXGI_SWAP_CHAIN_DESC swapChainDesc{};
+	swapChainDesc.BufferDesc.Width = static_cast<uint32_t>(width);
+	swapChainDesc.BufferDesc.Height = static_cast<uint32_t>(height);
+	swapChainDesc.BufferDesc.RefreshRate.Numerator = 1;
+	swapChainDesc.BufferDesc.RefreshRate.Denominator = 60;
+	swapChainDesc.BufferDesc.ScanlineOrdering = DXGI_MODE_SCANLINE_ORDER_UNSPECIFIED;
+	swapChainDesc.BufferDesc.Scaling = DXGI_MODE_SCALING_UNSPECIFIED;
+	swapChainDesc.BufferDesc.Format = ecs->graphicsCore.swapChainFormat;
+	swapChainDesc.SampleDesc.Count = 1;
+	swapChainDesc.SampleDesc.Quality = 0;
+	swapChainDesc.BufferUsage = DXGI_USAGE_RENDER_TARGET_OUTPUT;
+	swapChainDesc.BufferCount = ecs->graphicsCore.numSwapChainBuffers; // TODO WT: 3 buffers for mailbox?
+	swapChainDesc.OutputWindow = hwnd;
+	swapChainDesc.Windowed = true;
+	swapChainDesc.SwapEffect = DXGI_SWAP_EFFECT_FLIP_DISCARD;
+	swapChainDesc.Flags = 0;
+
+	auto hr = D3D11CreateDeviceAndSwapChain(
+		nullptr,
+		D3D_DRIVER_TYPE_HARDWARE,
+		nullptr,
+		flags,
+		featureLevels,
+		ARRAYSIZE(featureLevels),
+		D3D11_SDK_VERSION,
+		&swapChainDesc,
+		&ecs->graphicsCore.swapChain,
+		&ecs->graphicsCore.device,
+		nullptr,
+		&ecs->graphicsCore.context);
+
+	if (FAILED(hr)) {
+		std::stringstream error("Failed to create device and swap chain! ");
+		error << std::hex << hr << std::endl;
+
+		throw std::runtime_error(error.str());
+	}
+
+	// TODO WT: Resize depth texture
+	D3D11_TEXTURE2D_DESC depthTextureDesc;
+	depthTextureDesc.Width = width;
+	depthTextureDesc.Height = height;
+	depthTextureDesc.MipLevels = 1;
+	depthTextureDesc.ArraySize = 1;
+	depthTextureDesc.Format = DXGI_FORMAT_R24G8_TYPELESS;
+	depthTextureDesc.SampleDesc.Count = 1;
+	depthTextureDesc.SampleDesc.Quality = 0;
+	depthTextureDesc.Usage = D3D11_USAGE_DEFAULT;
+	depthTextureDesc.BindFlags = D3D11_BIND_DEPTH_STENCIL | D3D11_BIND_SHADER_RESOURCE;
+	depthTextureDesc.CPUAccessFlags = 0;
+	depthTextureDesc.MiscFlags = 0;
+
+	hr = ecs->graphicsCore.device->CreateTexture2D(&depthTextureDesc, nullptr, &ecs->graphicsCore.depthTexture);
+	if (FAILED(hr)) {
+		throw std::runtime_error("Failed to create depth texture!");
+	}
+
+	D3D11_DEPTH_STENCIL_VIEW_DESC dsvDesc = {};
+	dsvDesc.Format = DXGI_FORMAT_D24_UNORM_S8_UINT;
+	dsvDesc.ViewDimension = D3D11_DSV_DIMENSION_TEXTURE2D;
+	dsvDesc.Texture2D.MipSlice = 0;
+
+	hr = ecs->graphicsCore.device->CreateDepthStencilView(ecs->graphicsCore.depthTexture, &dsvDesc, &ecs->graphicsCore.depthStencilView);
+	if (FAILED(hr)) {
+		throw std::runtime_error("Failed to create depth texture RTV!");
+	}
+
+	return false;
+}
+
+bool system_setup_imgui(ECS* ecs) {
+	IMGUI_CHECKVERSION();
+	ImGui::CreateContext();
+	ImGuiIO& io = ImGui::GetIO(); (void)io;
+
+	ImGui::StyleColorsDark();
+
+	ImGui_ImplGlfw_InitForOther(ecs->application->window, true);
+	ImGui_ImplDX11_Init(ecs->graphicsCore.device, ecs->graphicsCore.context);
+
+	return false;
+}
+
+bool system_start(ECS* ecs) {
+	auto light = ecs->addEntity();
+	ecs->lights[light].emplace(XMFLOAT3(0.0f, 1.0f, 0.0f), 2.0f, XMFLOAT3(1.0f, 1.0f, 1.0f), 1.0f, XMFLOAT4(0.1f, 0.1f, 0.1f, 1.0f));
+	ecs->movesInCircle[light].emplace();
+
+	XMVECTOR colors[] = {
+		Colors::Red,
+		Colors::Green,
+		Colors::Blue,
+		Colors::Cyan,
+		Colors::Magenta,
+		Colors::Yellow,
+	};
+
+	for (size_t i = 1; i < 50; i++)
+	{
+		light = ecs->addEntity();
+		float rand0 = (float)rand() / RAND_MAX;
+		float rand1 = (float)rand() / RAND_MAX;
+		float rand2 = (float)rand() / RAND_MAX;
+		ecs->lights[light].emplace(
+			XMFLOAT3{ rand0 * 30.0f - 15.0f, rand2 * 10.0f, rand1 * 20.0f - 10.0f },
+			5.0f,
+			XMFLOAT3{ 1.0f, 1.0f, 1.0f },
+			1.0f,
+			XMFLOAT4{ 0.0f, 0.0f, 0.0f, 0.0f }
+		);
+		ecs->movesInCircle[light].emplace(ComponentMovesInCircle{ ecs->lights[light].value().position, 1.0f });
+		XMStoreFloat3(&ecs->lights[light].value().color, colors[i % 6]);
+	}
+
+	return false;
+}
+
+bool system_move_in_circle(ECS* ecs) {
+	float time = static_cast<float>(glfwGetTime());
+
+	for (int i = -0; i < ecs->nextEntity; i++) {
+		if (ecs->lights[i].has_value() && ecs->movesInCircle[i].has_value()) {
+			auto& light = ecs->lights[i].value();
+			auto& moves = ecs->movesInCircle[i].value();
+
+			light.position.x = moves.origin.x + std::cosf(time) * 2.0f;
+			light.position.z = moves.origin.z - std::sin(time) * 2.0f;
+		}
+	}
+
+	return true;
+}
+
+bool system_draw_imgui_debug_ui(ECS* ecs)
+{
+	int width, height;
+	glfwGetWindowSize(ecs->application->window, &width, &height);
+
+	if (ImGui::BeginMainMenuBar()) {
+		ImVec2 mainMenuSize = ImGui::GetWindowSize();
+
+		ecs->application->deferredGraphicsPipeline->scissor.top = ecs->application->lightingGraphicsPipeline->scissor.top = static_cast<uint64_t>(mainMenuSize.y);
+
+		static int currentVisualizedBuffer = -1;
+		if (ImGui::BeginMenu("Visualize Buffer")) {
+			if (ImGui::MenuItem("Position", nullptr, currentVisualizedBuffer == GeometryBuffer::Buffer::POSITION)) currentVisualizedBuffer = GeometryBuffer::Buffer::POSITION;
+			if (ImGui::MenuItem("Normals", nullptr, currentVisualizedBuffer == GeometryBuffer::Buffer::NORMAL)) currentVisualizedBuffer = GeometryBuffer::Buffer::NORMAL;
+			if (ImGui::MenuItem("Albedo", nullptr, currentVisualizedBuffer == GeometryBuffer::Buffer::ALBEDO)) currentVisualizedBuffer = GeometryBuffer::Buffer::ALBEDO;
+			if (ImGui::MenuItem("Specular", nullptr, currentVisualizedBuffer == GeometryBuffer::Buffer::SPECULAR)) currentVisualizedBuffer = GeometryBuffer::Buffer::SPECULAR;
+			if (ImGui::MenuItem("None", nullptr, currentVisualizedBuffer == -1)) currentVisualizedBuffer = -1;
+			ImGui::EndMenu();
+		}
+
+		if (ImGui::MenuItem("Recompile Shaders")) {
+			ecs->application->RecompileShaders();
+		}
+
+		ImGui::EndMainMenuBar();
+
+		if (currentVisualizedBuffer >= 0) {
+			ImGui::SetNextWindowPos({ 0.0f, 0.0f });
+			ImGui::SetNextWindowSize({ (float)width, (float)height });
+			ImGui::PushStyleVar(ImGuiStyleVar_WindowPadding, ImVec2());
+			ImGui::SetNextWindowContentSize({ (float)width, (float)height - mainMenuSize.y });
+			if (ImGui::Begin("Visualize", nullptr, ImGuiWindowFlags_NoCollapse | ImGuiWindowFlags_NoResize | ImGuiWindowFlags_NoDecoration | ImGuiWindowFlags_NoMouseInputs | ImGuiWindowFlags_NoBringToFrontOnFocus)) {
+				ImGui::Image(ecs->application->geometryBuffer.textureResourceViews[currentVisualizedBuffer], ImGui::GetWindowSize());
+
+				ImGui::End();
+			}
+		}
+	}
+
+	return true;
+}
+
+// System which just draws the sponza model
+bool system_draw_loaded_model(ECS* ecs)
+{
+	int width, height;
+	glfwGetWindowSize(ecs->application->window, &width, &height);
+
+	ecs->application->deferredGraphicsPipeline->bind(ecs->graphicsCore.context);
+	//context->ClearRenderTargetView(multisampleRTV, clearColor);
+	//context->OMSetRenderTargets(1, &multisampleRTV, nullptr);
+
+	D3D11_MAPPED_SUBRESOURCE mapped{};
+	ecs->graphicsCore.context->Map(ecs->application->perFrameUniformsBuffer, 0, D3D11_MAP_WRITE_DISCARD, 0, &mapped);
+	memcpy(mapped.pData, &ecs->application->perFrameUniforms, sizeof(PerFrameUniforms));
+	ecs->graphicsCore.context->Unmap(ecs->application->perFrameUniformsBuffer, 0);
+
+	float clearColor[4] = { 0.0f, 0.0f, 0.0f, 1.0f };
+	for (size_t i = 0; i < GeometryBuffer::MAX_BUFFER; i++)
+	{
+		ecs->graphicsCore.context->ClearRenderTargetView(ecs->application->geometryBuffer.textureViews[i], clearColor);
+	}
+	ecs->graphicsCore.context->ClearDepthStencilView(ecs->graphicsCore.depthStencilView, D3D11_CLEAR_DEPTH | D3D11_CLEAR_STENCIL, 1.0, 0);
+	ecs->graphicsCore.context->OMSetRenderTargets(GeometryBuffer::MAX_BUFFER, ecs->application->geometryBuffer.textureViews, ecs->graphicsCore.depthStencilView);
+
+	// Deferred passes to geometry buffer
+	ecs->graphicsCore.context->VSSetConstantBuffers(0, 1, &ecs->application->perFrameUniformsBuffer);
+	ecs->graphicsCore.context->PSSetConstantBuffers(0, 1, &ecs->application->perFrameUniformsBuffer);
+
+	uint32_t strides = sizeof(Vertex);
+	uint32_t offsets = 0;
+
+	//context->IASetVertexBuffers(0, 1, &vertices, &strides, &offsets);
+	//context->IASetIndexBuffer(indices, DXGI_FORMAT_R32_UINT, 0);
+	//context->DrawIndexed(numIndices, 0, 0);
+
+	ID3D11ShaderResourceView* nullTexture = nullptr;
+
+	for (const auto& mesh : ecs->modelCache["assets/crytekSponza_fbx/sponza.fbx"]) {
+		auto& mat = ecs->materialCache["assets/crytekSponza_fbx/sponza.fbx"][mesh.materialId];
+
+		ID3D11ShaderResourceView* views[] = {
+			(mat.settings.useDiffuseTexture) ? ecs->textureCache[mat.diffuseTexture]->textureSRV : nullTexture,
+			(mat.settings.useNormalTexture) ? ecs->textureCache[mat.normalTexture]->textureSRV : nullTexture,
+			(mat.settings.useAlphaCutoutTexture) ? ecs->textureCache[mat.alphaCutoutTexture]->textureSRV : nullTexture,
+			(mat.settings.useSpecularTexture) ? ecs->textureCache[mat.specularTexture]->textureSRV : nullTexture,
+		};
+
+		// TODO WT: Make a default sampler to fall back on instead of the gbuffer sampler
+		ID3D11SamplerState* samplers[] = {
+			(mat.settings.useDiffuseTexture) ? ecs->textureCache[mat.diffuseTexture]->sampler : ecs->application->gbufferSampler,
+			(mat.settings.useNormalTexture) ? ecs->textureCache[mat.normalTexture]->sampler : ecs->application->gbufferSampler,
+			(mat.settings.useAlphaCutoutTexture) ? ecs->textureCache[mat.alphaCutoutTexture]->sampler : ecs->application->gbufferSampler,
+			(mat.settings.useSpecularTexture) ? ecs->textureCache[mat.specularTexture]->sampler : ecs->application->gbufferSampler,
+		};
+
+		ecs->graphicsCore.context->PSSetShaderResources(0, 4, views);
+		ecs->graphicsCore.context->PSSetSamplers(0, 4, samplers);
+
+		D3D11_MAPPED_SUBRESOURCE mappedSettings{};
+		ecs->graphicsCore.context->Map(ecs->application->perMaterialUniformsBuffer, 0, D3D11_MAP_WRITE_DISCARD, 0, &mappedSettings);
+		memcpy(mappedSettings.pData, &mat.settings, sizeof(MaterialCbuffer));
+		ecs->graphicsCore.context->Unmap(ecs->application->perMaterialUniformsBuffer, 0);
+
+		ecs->graphicsCore.context->PSSetConstantBuffers(1, 1, &ecs->application->perMaterialUniformsBuffer);
+
+		ecs->graphicsCore.context->IASetVertexBuffers(0, 1, &mesh.vertices, &strides, &offsets);
+		ecs->graphicsCore.context->IASetIndexBuffer(mesh.indices, DXGI_FORMAT_R32_UINT, 0);
+		ecs->graphicsCore.context->DrawIndexed(mesh.indexCount, 0, 0);
+	}
+	return true;
+}
+
+bool system_draw_lights(ECS* ecs) {
+	// TODO WT: This should be a resource, it's pretty global.
+	float clearColor[4] = { 0.0f, 0.0f, 0.0f, 1.0f };
+
+	ID3D11Texture2D* backBuffer;
+	if (FAILED(ecs->graphicsCore.swapChain->GetBuffer(0, IID_PPV_ARGS(&backBuffer)))) {
+		throw std::runtime_error("Failed to get a back buffer!");
+	}
+
+	ID3D11RenderTargetView* renderTarget;
+
+	D3D11_RENDER_TARGET_VIEW_DESC rtvDesc{};
+	rtvDesc.Format = ecs->graphicsCore.swapChainFormat;
+	rtvDesc.ViewDimension = D3D11_RTV_DIMENSION_TEXTURE2D;
+	rtvDesc.Texture2D.MipSlice = 0;
+
+	if (FAILED(ecs->graphicsCore.device->CreateRenderTargetView(backBuffer, &rtvDesc, &renderTarget))) {
+		throw std::runtime_error("Failed to create backbuffer RTV!");
+	}
+
+	backBuffer->Release();
+
+	ecs->graphicsCore.context->ClearRenderTargetView(renderTarget, clearColor);
+	ecs->graphicsCore.context->OMSetRenderTargets(1, &renderTarget, nullptr);
+
+	ecs->application->lightingGraphicsPipeline->bind(ecs->graphicsCore.context);
+	ecs->graphicsCore.context->PSSetShaderResources(0, GeometryBuffer::MAX_BUFFER, ecs->application->geometryBuffer.textureResourceViews);
+
+	ecs->graphicsCore.context->PSSetSamplers(0, 1, &ecs->application->gbufferSampler);
+
+	// Draw light mesh
+	for (size_t i = 0; i < ecs->lights.size(); i++)
+	{
+		if (!ecs->lights[i].has_value()) continue;
+		ecs->application->lighting->DrawPointLight(ecs->graphicsCore.context, ecs->lights[i].value());
+	}
+
+	ID3D11ShaderResourceView* nullSRVs[GeometryBuffer::MAX_BUFFER];
+	memset(nullSRVs, 0, sizeof(nullSRVs));
+	ecs->graphicsCore.context->PSSetShaderResources(0, GeometryBuffer::MAX_BUFFER, nullSRVs);
+
+	// TODO WT: Might cause error releasing now?
+	renderTarget->Release();
+
+	return true;
+}
+
+bool system_post_draw(ECS* ecs) {
+	ImGui::Render();
+	ImGui_ImplDX11_RenderDrawData(ImGui::GetDrawData());
+
+	ecs->graphicsCore.swapChain->Present(1, 0);
+
+	return true;
+}
 
 int main(int argc, char** argv) {
 	try {

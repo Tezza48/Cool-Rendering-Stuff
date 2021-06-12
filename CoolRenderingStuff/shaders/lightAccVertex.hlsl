@@ -2,7 +2,7 @@
 #include "lightAccCommon.hlsli"
 
 struct AppData {
-    float3 position: POSITION;
+    //float3 position: POSITION;
     uint index: SV_VertexID;
 };
 
