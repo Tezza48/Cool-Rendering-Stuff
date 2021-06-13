@@ -159,9 +159,13 @@
     </FxCompile>
   </ItemDefinitionGroup>
   <ItemGroup>
+    <ClCompile Include="Application.cpp" />
+    <ClCompile Include="ECS.cpp" />
     <ClCompile Include="GraphicsPipeline.cpp" />
     <ClCompile Include="Lighting.cpp" />
     <ClCompile Include="main.cpp" />
+    <ClCompile Include="Resources.cpp" />
+    <ClCompile Include="Texture.cpp" />
     <ClCompile Include="vendor\imgui\imgui.cpp" />
     <ClCompile Include="vendor\imgui\imgui_demo.cpp" />
     <ClCompile Include="vendor\imgui\imgui_draw.cpp" />
@@ -198,8 +202,12 @@
     </FxCompile>
   </ItemGroup>
   <ItemGroup>
+    <ClInclude Include="Application.h" />
+    <ClInclude Include="ECS.h" />
     <ClInclude Include="GraphicsPipeline.h" />
     <ClInclude Include="Lighting.h" />
+    <ClInclude Include="Resources.h" />
+    <ClInclude Include="Texture.h" />
     <ClInclude Include="vendor\imgui\imconfig.h" />
     <ClInclude Include="vendor\imgui\imgui.h" />
     <ClInclude Include="vendor\imgui\imgui_impl_dx11.h" />

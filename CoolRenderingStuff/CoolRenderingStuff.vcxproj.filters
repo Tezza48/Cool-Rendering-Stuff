@@ -45,6 +45,18 @@
     <ClCompile Include="vendor\imgui\imgui_widgets.cpp">
       <Filter>Source Files</Filter>
     </ClCompile>
+    <ClCompile Include="ECS.cpp">
+      <Filter>Source Files</Filter>
+    </ClCompile>
+    <ClCompile Include="Resources.cpp">
+      <Filter>Source Files</Filter>
+    </ClCompile>
+    <ClCompile Include="Application.cpp">
+      <Filter>Source Files</Filter>
+    </ClCompile>
+    <ClCompile Include="Texture.cpp">
+      <Filter>Source Files</Filter>
+    </ClCompile>
   </ItemGroup>
   <ItemGroup>
     <None Include="shaders\common.hlsli" />
@@ -89,6 +101,18 @@
       <Filter>Header Files</Filter>
     </ClInclude>
     <ClInclude Include="vendor\stb\stb_image.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
+    <ClInclude Include="ECS.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
+    <ClInclude Include="Resources.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
+    <ClInclude Include="Application.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
+    <ClInclude Include="Texture.h">
       <Filter>Header Files</Filter>
     </ClInclude>
   </ItemGroup>
