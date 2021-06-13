@@ -211,7 +211,31 @@ struct ComponentMovesInCircle {
 
 class Application;
 
-struct ResourceImguiLifetime {
+struct ComponentRenderModel {
+	std::string path;
+};
+
+struct ECS;
+bool system_setup_window(ECS* ecs);
+bool system_setup_graphics_core(ECS* ecs);
+bool system_init_application(ECS* ecs);
+bool system_setup_imgui(ECS* ecs);
+bool system_start(ECS* ecs);
+bool system_flycam(ECS* ecs);
+bool system_move_in_circle(ECS* ecs);
+bool system_pre_draw(ECS* ecs) {
+	ImGui_ImplDX11_NewFrame();
+	ImGui_ImplGlfw_NewFrame();
+	ImGui::NewFrame();
+
+	return true;
+}
+bool system_draw_imgui_debug_ui(ECS* ecs);
+bool system_draw_loaded_model(ECS* ecs);
+bool system_draw_lights(ECS* ecs);
+bool system_post_draw(ECS* ecs);
+
+struct ResourceImguiLifetime{
 	void Cleanup() {
 		ImGui_ImplDX11_Shutdown();
 		ImGui_ImplGlfw_Shutdown();
@@ -219,19 +243,12 @@ struct ResourceImguiLifetime {
 	}
 };
 
-struct ComponentRenderModel {
-	std::string path;
-};
+struct ResourceFlycam{
+	float yaw, pitch;
+	XMFLOAT3 position;
 
-struct ECS;
-bool system_setup_graphics_core(ECS* ecs);
-bool system_setup_imgui(ECS* ecs);
-bool system_start(ECS* ecs);
-bool system_move_in_circle(ECS* ecs);
-bool system_draw_imgui_debug_ui(ECS* ecs);
-bool system_draw_loaded_model(ECS* ecs);
-bool system_draw_lights(ECS* ecs);
-bool system_post_draw(ECS* ecs);
+	void Cleanup() {}
+};
 
 struct ResourceGraphicsCore {
 	ID3D11Device* device;
@@ -253,63 +270,70 @@ struct ResourceGraphicsCore {
 	}
 };
 
-//struct ResourceWindow {
-//	GLFWwindow* window;
-//
-//	void Init()
-//
-//	void Cleanup() {
-//
-//	}
-//};
+struct ResourceWindow {
+	static void GlfwErrorCallback(int error, const char* description) {
+		std::cout << "Glfw error " << std::hex << error << std::dec << ": " << description << "\n";
+	}
+
+	static void GlfwWindowSizeCallback(GLFWwindow* window, int width, int height);
+
+	static void GlfwCursorPosCallback(GLFWwindow* window, double x, double y);
+
+	static void GlfwKeyCallback(GLFWwindow* window, int key, int scancode, int action, int mods);
+
+	static void GlfwMouseButtonCallback(GLFWwindow* window, int button, int action, int mods);
+
+
+	GLFWwindow* window;
+
+	void Cleanup() {
+		glfwDestroyWindow(window);
+		glfwTerminate();
+	}
+};
 
 struct ECS {
 	using System = bool(ECS* ecs);
 	std::vector<System*> systems = {
+		// Initialization
+		system_setup_window,
+		system_setup_graphics_core,
+		system_setup_imgui,
+		system_init_application,
 		system_start,
-		//system_move_in_circle,
+
+		// Updates
+		system_move_in_circle,
+		system_flycam,
+
+		// Draws
+		system_pre_draw,
 		system_draw_imgui_debug_ui,
 		system_draw_loaded_model,
 		system_draw_lights,
 		system_post_draw
-		// TODO WT: system_draw_deferred, system_draw_lights
 	};
 
 	int nextEntity = 0;
 
 	// Resources
+	// TODO WT: would probably make sense to make these std::optional.
 	Application* application;
 
-	//ResourceWindow window;
+	ResourceWindow window;
 	ResourceImguiLifetime imguiLifetime;
 	ResourceGraphicsCore graphicsCore;
 	std::unordered_map<std::string, std::vector<Mesh>> modelCache;
 	std::unordered_map<std::string, std::vector<Material>> materialCache;
 
 	std::unordered_map<std::string, Texture*> textureCache;
+	ResourceFlycam flyCam;
 
 	// Components
 	std::vector<std::optional<Light>> lights;
 	std::vector<std::optional<ComponentMovesInCircle>> movesInCircle;
 
-	void Cleanup() {
-		for (auto texture : textureCache) {
-			delete texture.second;
-		}
-
-		for (auto meshes : modelCache) {
-			for (auto mesh : meshes.second) {
-				mesh.vertices->Release();
-				mesh.indices->Release();
-			}
-		}
-
-		// Delete pipelines
-
-
-		imguiLifetime.Cleanup();
-		graphicsCore.Cleanup();
-	}
+	void Cleanup();
 
 	int addEntity() {
 		lights.emplace_back();
@@ -319,84 +343,32 @@ struct ECS {
 	}
 
 	void run() {
-		std::vector<std::vector<System*>::iterator> toRemove;
+		//std::vector<std::vector<System*>::iterator> toRemove;
 
-		for (auto systemIt = systems.begin(); systemIt != systems.end(); systemIt++) {
-			if (!(*systemIt)(this)) {
-				toRemove.push_back(systemIt);
+		std::vector<System*> nextSystems;
+		for (const auto system : systems) {
+			if (system(this)) {
+				nextSystems.push_back(system);
 			}
 		}
 
-		for (const auto& it : toRemove) {
-			systems.erase(it);
-		}
+		systems = nextSystems;
+
+		//for (auto systemIt = systems.begin(); systemIt != systems.end(); systemIt++) {
+		//	if (!(*systemIt)(this)) {
+		//		toRemove.push_back(systemIt);
+		//	}
+		//}
+
+		//for (const auto& it : toRemove) {
+		//	systems.erase(it);
+		//}
 	}
 };
 
 
 class Application {
 public:
-	static void GlfwErrorCallback(int error, const char* description) {
-		std::cout << "Glfw error " << std::hex << error << std::dec << ": " << description << "\n";
-	}
-
-	static void GlfwWindowSizeCallback(GLFWwindow* window, int width, int height) {
-		auto app = reinterpret_cast<Application*>(glfwGetWindowUserPointer(window));
-
-		app->OnWindowResized(width, height);
-	}
-
-	static void GlfwCursorPosCallback(GLFWwindow* window, double x, double y) {
-		int width, height;
-		glfwGetWindowSize(window, &width, &height);
-
-		static bool isFirstTime = true;
-		static double lastX = 0.0f;
-		static double lastY = 0.0f;
-
-		auto app = reinterpret_cast<Application*>(glfwGetWindowUserPointer(window));
-
-		if (isFirstTime) {
-			lastX = x;
-			lastY = y;
-			isFirstTime = false;
-		}
-
-		if (glfwGetInputMode(window, GLFW_CURSOR) == GLFW_CURSOR_DISABLED) {
-			float extent = PI - 0.1f;
-
-			app->yaw += static_cast<float>(x - lastX) / width;
-			app->pitch += static_cast<float>(y - lastY) / height;
-
-			app->yaw = std::fmodf(app->yaw, PI * 2.0f);
-			app->pitch = std::fmaxf(-extent, std::fminf(extent, app->pitch));
-		}
-
-		lastX = (float)x;
-		lastY = (float)y;
-	}
-
-	static void GlfwKeyCallback(GLFWwindow* window, int key, int scancode, int action, int mods) {
-		if (ImGui::GetIO().WantCaptureKeyboard) return;
-
-		auto app = reinterpret_cast<Application*>(glfwGetWindowUserPointer(window));
-
-		if (key == GLFW_KEY_ESCAPE && action == GLFW_PRESS) {
-			glfwSetInputMode(window, GLFW_CURSOR, GLFW_CURSOR_NORMAL);
-		}
-	}
-
-	static void GlfwMouseButtonCallback(GLFWwindow* window, int button, int action, int mods)
-	{
-		if (ImGui::GetIO().WantCaptureMouse) return;
-
-		auto app = reinterpret_cast<Application*>(glfwGetWindowUserPointer(window));
-
-		if (button == GLFW_MOUSE_BUTTON_1 && action == GLFW_PRESS) {
-			glfwSetInputMode(window, GLFW_CURSOR, GLFW_CURSOR_DISABLED);
-		}
-	}
-
 	static std::vector<char> readFile(const std::string& filename) {
 		std::ifstream file(filename, std::ios::ate | std::ios::binary);
 
@@ -418,16 +390,9 @@ public:
 public:
 //protected:
 //private:
-	GLFWwindow* window;
 
 	GraphicsPipeline *deferredGraphicsPipeline;
 	GraphicsPipeline *lightingGraphicsPipeline;
-
-
-	float yaw;
-	float pitch;
-
-	XMFLOAT3 cameraPosition = { 0.0f, 1.5f, 0.0f };
 
 	ID3D11Buffer* perFrameUniformsBuffer;
 	PerFrameUniforms perFrameUniforms;
@@ -441,80 +406,31 @@ public:
 
 	std::vector<Light> lights;
 
-	ECS ecs;
+	// TODO WT: Remove referance to ecs;
 
 public:
-	Application() {
-		// TODO WT: Application should be owned by ECS. (or it's members made into individual resources/components)
-		ecs.application = this;
-		createWindow();
+	void Init(ECS* ecs) {
+		createDeferredGraphicsPipeline(ecs);
+		createLightingGraphicsPipeline(ecs);
+		createConstantBuffers(ecs);
+		createGbuffers(ecs);
 
-		system_setup_graphics_core(&ecs);
-		system_setup_imgui(&ecs);
+		loadModel(ecs);
 
-		createDeferredGraphicsPipeline();
-		createLightingGraphicsPipeline();
-		createConstantBuffers();
-		createGbuffers();
-
-		loadModel();
-
-		lighting = new Lighting(ecs.graphicsCore.device);
+		lighting = new Lighting(ecs->graphicsCore.device);
 	}
 
-	~Application() {
+	void Cleanup() {
 		delete lighting;
 
 		delete lightingGraphicsPipeline;
 		delete deferredGraphicsPipeline;
-
-		ecs.Cleanup();
-
-		glfwDestroyWindow(window);
-		glfwTerminate();
 	}
 
 public:
-	void run() {
-		while (!glfwWindowShouldClose(window)) {
-			glfwPollEvents();
-
-			ImGui_ImplDX11_NewFrame();
-			ImGui_ImplGlfw_NewFrame();
-			ImGui::NewFrame();
-
-			updateFrame();
-			ecs.run();
-
-		}
-	}
 //protected:
 //private:
-	void createWindow() {
-		if (!glfwInit()) {
-			throw std::runtime_error("Failed to init glfw");
-		}
-
-		glfwSetErrorCallback(GlfwErrorCallback);
-
-		glfwWindowHint(GLFW_CLIENT_API, GLFW_NO_API);
-
-		window = glfwCreateWindow(1280, 720, "D3D11 Application", nullptr, nullptr);
-		if (!window) {
-			throw std::runtime_error("Failed to create window");
-		}
-
-		glfwSetWindowUserPointer(window, this);
-
-		glfwSetInputMode(window, GLFW_CURSOR, GLFW_CURSOR_DISABLED);
-
-		glfwSetWindowSizeCallback(window, GlfwWindowSizeCallback);
-		glfwSetCursorPosCallback(window, GlfwCursorPosCallback);
-		glfwSetKeyCallback(window, GlfwKeyCallback);
-		glfwSetMouseButtonCallback(window, GlfwMouseButtonCallback);
-	}
-
-	void createDeferredGraphicsPipeline() {
+	void createDeferredGraphicsPipeline(ECS* ecs) {
 		std::vector<char> vertexShaderCode = readFile("shaders/deferredVertex.cso");
 		std::vector<char> pixelShaderCode = readFile("shaders/deferredPixel.cso");
 
@@ -531,7 +447,7 @@ public:
 		rasterizerDesc.AntialiasedLineEnable = false;
 
 		int width, height;
-		glfwGetWindowSize(window, &width, &height);
+		glfwGetWindowSize(ecs->window.window, &width, &height);
 
 		D3D11_VIEWPORT viewport{};
 		viewport.TopLeftX = 0.0f;
@@ -587,7 +503,7 @@ public:
 		}
 
 		deferredGraphicsPipeline = new GraphicsPipeline(
-			ecs.graphicsCore.device,
+			ecs->graphicsCore.device,
 			vertexShaderCode,
 			pixelShaderCode,
 			std::make_optional(inputs),
@@ -600,7 +516,7 @@ public:
 		);
 	}
 
-	void createLightingGraphicsPipeline() {
+	void createLightingGraphicsPipeline(ECS* ecs) {
 		std::vector<char> vertexShaderCode = readFile("shaders/lightAccVertex.cso");
 		std::vector<char> pixelShaderCode = readFile("shaders/lightAccPixel.cso");
 
@@ -617,7 +533,7 @@ public:
 		rasterizerDesc.AntialiasedLineEnable = false;
 
 		int width, height;
-		glfwGetWindowSize(window, &width, &height);
+		glfwGetWindowSize(ecs->window.window, &width, &height);
 
 		D3D11_VIEWPORT viewport{};
 		viewport.TopLeftX = 0.0f;
@@ -667,7 +583,7 @@ public:
 		blendDesc.RenderTarget[0].RenderTargetWriteMask = D3D11_COLOR_WRITE_ENABLE_ALL;
 
 		lightingGraphicsPipeline = new GraphicsPipeline(
-			ecs.graphicsCore.device,
+			ecs->graphicsCore.device,
 			vertexShaderCode,
 			pixelShaderCode,
 			//std::make_optional(inputs),
@@ -696,12 +612,12 @@ public:
 		samplerDesc.MinLOD = 0.0f;
 		samplerDesc.MaxLOD = D3D11_FLOAT32_MAX;
 
-		if (FAILED(ecs.graphicsCore.device->CreateSamplerState(&samplerDesc, &gbufferSampler))) {
+		if (FAILED(ecs->graphicsCore.device->CreateSamplerState(&samplerDesc, &gbufferSampler))) {
 			throw std::runtime_error("Failed to create gbuffer sampler");
 		}
 	}
 
-	void createConstantBuffers() {
+	void createConstantBuffers(ECS* ecs) {
 		D3D11_BUFFER_DESC desc{};
 		desc.ByteWidth = sizeof(PerFrameUniforms);
 		desc.Usage = D3D11_USAGE_DYNAMIC;
@@ -710,7 +626,7 @@ public:
 		desc.MiscFlags = 0;
 		desc.StructureByteStride = 0;
 
-		if (FAILED(ecs.graphicsCore.device->CreateBuffer(&desc, nullptr, &perFrameUniformsBuffer))) {
+		if (FAILED(ecs->graphicsCore.device->CreateBuffer(&desc, nullptr, &perFrameUniformsBuffer))) {
 			throw std::runtime_error("Failed to create cbuffer!");
 		}
 
@@ -722,14 +638,14 @@ public:
 		matDesc.MiscFlags = 0;
 		matDesc.StructureByteStride = 0;
 
-		if (FAILED(ecs.graphicsCore.device->CreateBuffer(&matDesc, nullptr, &perMaterialUniformsBuffer))) {
+		if (FAILED(ecs->graphicsCore.device->CreateBuffer(&matDesc, nullptr, &perMaterialUniformsBuffer))) {
 			throw std::runtime_error("Failed to create material settings cbuffer!");
 		}
 	}
 
-	void createGbuffers() {
+	void createGbuffers(ECS* ecs) {
 		int32_t width, height;
-		glfwGetWindowSize(window, &width, &height);
+		glfwGetWindowSize(ecs->window.window, &width, &height);
 
 		for (size_t i = 0; i < GeometryBuffer::MAX_BUFFER; i++) {
 			D3D11_TEXTURE2D_DESC textureDesc{};
@@ -746,7 +662,7 @@ public:
 			textureDesc.CPUAccessFlags = 0;
 			textureDesc.MiscFlags = 0;
 
-			if (FAILED(ecs.graphicsCore.device->CreateTexture2D(&textureDesc, nullptr, &geometryBuffer.textures[i]))) {
+			if (FAILED(ecs->graphicsCore.device->CreateTexture2D(&textureDesc, nullptr, &geometryBuffer.textures[i]))) {
 				throw std::runtime_error("Failed to create gbuffer texture!");
 			}
 
@@ -755,7 +671,7 @@ public:
 			rtvDesc.ViewDimension = D3D11_RTV_DIMENSION_TEXTURE2D;
 			rtvDesc.Texture2D.MipSlice = 0;
 
-			if (FAILED(ecs.graphicsCore.device->CreateRenderTargetView(geometryBuffer.textures[i], &rtvDesc, &geometryBuffer.textureViews[i]))) {
+			if (FAILED(ecs->graphicsCore.device->CreateRenderTargetView(geometryBuffer.textures[i], &rtvDesc, &geometryBuffer.textureViews[i]))) {
 				throw std::runtime_error("Failed to create gbuffer RTV!");
 			}
 
@@ -765,13 +681,13 @@ public:
 			srvDesc.Texture2D.MipLevels = 1;
 			srvDesc.Texture2D.MostDetailedMip = 0;
 
-			if (FAILED(ecs.graphicsCore.device->CreateShaderResourceView(geometryBuffer.textures[i], &srvDesc, &geometryBuffer.textureResourceViews[i]))) {
+			if (FAILED(ecs->graphicsCore.device->CreateShaderResourceView(geometryBuffer.textures[i], &srvDesc, &geometryBuffer.textureResourceViews[i]))) {
 				throw std::runtime_error("Failed to create gbuffer SRV!");
 			}
 		}
 	}
 
-	void loadModel() {
+	void loadModel(ECS* ecs) {
 		Assimp::Importer* importer = new Assimp::Importer();
 
 		AssimpProgressHandler* handler = new AssimpProgressHandler();
@@ -786,10 +702,10 @@ public:
 
 		//std::cout << "\n Loaded\n";
 
-		ecs.modelCache[fullPath] =  std::vector<Mesh>();//  = std::vector();
-		ecs.materialCache[fullPath] = std::vector<Material>();
+		ecs->modelCache[fullPath] =  std::vector<Mesh>();//  = std::vector();
+		ecs->materialCache[fullPath] = std::vector<Material>();
 
-		ecs.modelCache[fullPath].reserve(scene->mNumMaterials);
+		ecs->modelCache[fullPath].reserve(scene->mNumMaterials);
 
 		for (size_t i = 0; i < scene->mNumMaterials; i++) {
 			Material mat;
@@ -803,19 +719,19 @@ public:
 				mat.name = name.C_Str();
 			}
 
-			loadTexture(aiTextureType_DIFFUSE, data, basePath, mat.diffuseTexture, (bool&)mat.settings.useDiffuseTexture);
-			loadTexture(aiTextureType_NORMALS, data, basePath, mat.normalTexture, (bool&)mat.settings.useNormalTexture);
-			loadTexture(aiTextureType_OPACITY, data, basePath, mat.alphaCutoutTexture, (bool&)mat.settings.useAlphaCutoutTexture);
-			loadTexture(aiTextureType_SPECULAR, data, basePath, mat.specularTexture, (bool&)mat.settings.useSpecularTexture);
+			loadTexture(ecs, aiTextureType_DIFFUSE, data, basePath, mat.diffuseTexture, (bool&)mat.settings.useDiffuseTexture);
+			loadTexture(ecs, aiTextureType_NORMALS, data, basePath, mat.normalTexture, (bool&)mat.settings.useNormalTexture);
+			loadTexture(ecs, aiTextureType_OPACITY, data, basePath, mat.alphaCutoutTexture, (bool&)mat.settings.useAlphaCutoutTexture);
+			loadTexture(ecs, aiTextureType_SPECULAR, data, basePath, mat.specularTexture, (bool&)mat.settings.useSpecularTexture);
 			if (!mat.settings.useSpecularTexture)
-				loadTexture(aiTextureType_SHININESS, data, basePath, mat.specularTexture, (bool&)mat.settings.useSpecularTexture);
+				loadTexture(ecs, aiTextureType_SHININESS, data, basePath, mat.specularTexture, (bool&)mat.settings.useSpecularTexture);
 			if (!mat.settings.useSpecularTexture)
-				loadTexture(aiTextureType_DIFFUSE_ROUGHNESS, data, basePath, mat.specularTexture, (bool&)mat.settings.useSpecularTexture);
+				loadTexture(ecs, aiTextureType_DIFFUSE_ROUGHNESS, data, basePath, mat.specularTexture, (bool&)mat.settings.useSpecularTexture);
 
-			ecs.materialCache[fullPath].push_back(mat);
+			ecs->materialCache[fullPath].push_back(mat);
 		}
 
-		ecs.modelCache[fullPath].reserve(scene->mNumMeshes);
+		ecs->modelCache[fullPath].reserve(scene->mNumMeshes);
 
 		for (size_t i = 0; i < scene->mNumMeshes; i++) {
 			Mesh mesh;
@@ -842,7 +758,7 @@ public:
 			vertData.pSysMem = vertices.data();
 
 			mesh.numVertices = data->mNumVertices;
-			auto vbHR = ecs.graphicsCore.device->CreateBuffer(&vDesc, &vertData, &mesh.vertices);
+			auto vbHR = ecs->graphicsCore.device->CreateBuffer(&vDesc, &vertData, &mesh.vertices);
 
 			std::string vbufferName(data->mName.C_Str());
 			vbufferName += "_VertexBuffer";
@@ -862,7 +778,7 @@ public:
 			indexData.pSysMem = indices.data();
 
 			mesh.indexCount = numIndices;
-			auto ibHF = ecs.graphicsCore.device->CreateBuffer(&iDesc, &indexData, &mesh.indices);
+			auto ibHF = ecs->graphicsCore.device->CreateBuffer(&iDesc, &indexData, &mesh.indices);
 
 			std::string ibufferName(data->mName.C_Str());
 			ibufferName += "_IndexBuffer";
@@ -872,7 +788,7 @@ public:
 
 			mesh.materialId = data->mMaterialIndex;
 
-			ecs.modelCache[fullPath].push_back(mesh);
+			ecs->modelCache[fullPath].push_back(mesh);
 		}
 
 		importer->FreeScene();
@@ -880,7 +796,7 @@ public:
 		delete importer;
 	}
 
-	void loadTexture(aiTextureType type, aiMaterial* materialData, const std::string& baseAssetPath, std::string& outPath, bool& outEnabled) {
+	void loadTexture(ECS* ecs, aiTextureType type, aiMaterial* materialData, const std::string& baseAssetPath, std::string& outPath, bool& outEnabled) {
 		outEnabled = false;
 		outPath.clear();
 		
@@ -889,7 +805,7 @@ public:
 			outPath += baseAssetPath;
 			outPath += path.C_Str();
 
-			std::cout << outPath << std::endl;
+			//std::cout << outPath << std::endl;
 
 			std::filesystem::path asPath(outPath);
 			auto extension = asPath.extension();
@@ -908,7 +824,7 @@ public:
 					throw std::runtime_error(errorString.str());
 				}
 
-				ecs.textureCache[outPath] = new Texture(ecs.graphicsCore.device, ecs.graphicsCore.context, outPath, width, height, bpp, textureData);
+				ecs->textureCache[outPath] = new Texture(ecs->graphicsCore.device, ecs->graphicsCore.context, outPath, width, height, bpp, textureData);
 				stbi_image_free(textureData);
 			}
 
@@ -946,51 +862,8 @@ public:
 		}
 	}
 
-	void updateFrame() {
-		static double lastTime = 0.0f;
-		double thisTime = glfwGetTime();
-		float delta = static_cast<float>(thisTime - lastTime);
-		lastTime = thisTime;
-
-		auto look = XMMatrixRotationRollPitchYaw(pitch, yaw, 0.0f);
-
-		float x = 0;
-		x += glfwGetKey(window, GLFW_KEY_D) == GLFW_PRESS ? 1.0f : 0.0f;
-		x -= glfwGetKey(window, GLFW_KEY_A) == GLFW_PRESS ? 1.0f : 0.0f;
-
-		float y = 0;
-		y += glfwGetKey(window, GLFW_KEY_W) == GLFW_PRESS ? 1.0f : 0.0f;
-		y -= glfwGetKey(window, GLFW_KEY_S) == GLFW_PRESS ? 1.0f : 0.0f;
-
-		auto moveDir = XMVectorSet(x, 0.0f, y, 0.0f);
-		moveDir = XMVector3Normalize(moveDir);
-		moveDir = XMVector3Transform(moveDir, look);
-
-		auto moveDelta = XMVectorScale(moveDir, delta * 2.0f);
-
-		auto newPosition = XMVectorAdd(XMLoadFloat3(&cameraPosition), moveDelta);
-		XMStoreFloat3(&cameraPosition, newPosition);
-
-		perFrameUniforms.eyePos = cameraPosition;
-
-		auto trans = XMMatrixTranslation(cameraPosition.x, cameraPosition.y, cameraPosition.z);
-
-		auto camera = look * trans;
-		auto det = XMMatrixDeterminant(camera);
-		auto view = XMMatrixInverse(&det, camera);
-
-		int width, height;
-		glfwGetWindowSize(window, &width, &height);
-		perFrameUniforms.screenDimensions = { static_cast<float>(width), static_cast<float>(height) };
-		perFrameUniforms.view = view;
-		XMMATRIX proj;
-
-		proj = XMMatrixPerspectiveFovLH(45.0f, static_cast<float>(width) / height, 0.1f, 1000.0f);
-		perFrameUniforms.viewProj = perFrameUniforms.view * proj;
-	}
-
 	// TODO WT: make events handleable in ecs
-	void RecompileShaders() {
+	void RecompileShaders(ECS* ecs) {
 		// TODO WT: Clean up this memory leak heaven!
 		ID3D11VertexShader* newVertShader;
 		ID3D11PixelShader* newPixelShader;
@@ -1005,7 +878,7 @@ public:
 			return;
 		}
 
-		ecs.graphicsCore.device->CreateVertexShader(bytecode->GetBufferPointer(), bytecode->GetBufferSize(), nullptr, &newVertShader);
+		ecs->graphicsCore.device->CreateVertexShader(bytecode->GetBufferPointer(), bytecode->GetBufferSize(), nullptr, &newVertShader);
 		if (errors)
 			errors->Release();
 		bytecode->Release();
@@ -1017,7 +890,7 @@ public:
 			return;
 		}
 
-		ecs.graphicsCore.device->CreatePixelShader(bytecode->GetBufferPointer(), bytecode->GetBufferSize(), nullptr, &newPixelShader);
+		ecs->graphicsCore.device->CreatePixelShader(bytecode->GetBufferPointer(), bytecode->GetBufferSize(), nullptr, &newPixelShader);
 		if (errors)
 			errors->Release();
 		bytecode->Release();
@@ -1027,8 +900,6 @@ public:
 		deferredGraphicsPipeline->vertexShader = newVertShader;
 		deferredGraphicsPipeline->pixelShader = newPixelShader;
 
-
-
 		// Lighting
 		if (FAILED(D3DCompileFromFile(L"shaders/lightAccVertex.hlsl", nullptr, D3D_COMPILE_STANDARD_FILE_INCLUDE, "main", "vs_5_0", 0, 0, &bytecode, &errors))) {
 			std::wcout << L"lightAcc vshader error " << (char*)errors->GetBufferPointer() << std::endl;
@@ -1037,7 +908,7 @@ public:
 			return;
 		}
 
-		ecs.graphicsCore.device->CreateVertexShader(bytecode->GetBufferPointer(), bytecode->GetBufferSize(), nullptr, &newVertShader);
+		ecs->graphicsCore.device->CreateVertexShader(bytecode->GetBufferPointer(), bytecode->GetBufferSize(), nullptr, &newVertShader);
 		if (errors)
 			errors->Release();
 		bytecode->Release();
@@ -1049,7 +920,7 @@ public:
 			return;
 		}
 
-		ecs.graphicsCore.device->CreatePixelShader(bytecode->GetBufferPointer(), bytecode->GetBufferSize(), nullptr, &newPixelShader);
+		ecs->graphicsCore.device->CreatePixelShader(bytecode->GetBufferPointer(), bytecode->GetBufferSize(), nullptr, &newPixelShader);
 		if (errors)
 			errors->Release();
 		bytecode->Release();
@@ -1062,28 +933,28 @@ public:
 		std::cout << "Successfully hot reloader lighting pass shaders" << std::endl;
 	}
 
-	void OnWindowResized(uint32_t width, uint32_t height) {
-		ecs.graphicsCore.swapChain->ResizeBuffers(ecs.graphicsCore.numSwapChainBuffers, width, height, ecs.graphicsCore.swapChainFormat, 0);
+	void OnWindowResized(ECS* ecs, uint32_t width, uint32_t height) {
+		ecs->graphicsCore.swapChain->ResizeBuffers(ecs->graphicsCore.numSwapChainBuffers, width, height, ecs->graphicsCore.swapChainFormat, 0);
 
 		D3D11_TEXTURE2D_DESC dstDesc;
 		D3D11_DEPTH_STENCIL_VIEW_DESC dstViewDesc;
-		ecs.graphicsCore.depthTexture->GetDesc(&dstDesc);
-		ecs.graphicsCore.depthStencilView->GetDesc(&dstViewDesc);
+		ecs->graphicsCore.depthTexture->GetDesc(&dstDesc);
+		ecs->graphicsCore.depthStencilView->GetDesc(&dstViewDesc);
 
-		ecs.graphicsCore.depthTexture->Release();
-		ecs.graphicsCore.depthStencilView->Release();
+		ecs->graphicsCore.depthTexture->Release();
+		ecs->graphicsCore.depthStencilView->Release();
 
 		dstDesc.Width = width;
 		dstDesc.Height = height;
 
 		HRESULT hr;
-		hr = ecs.graphicsCore.device->CreateTexture2D(&dstDesc, nullptr, &ecs.graphicsCore.depthTexture);
-		if (FAILED(hr) || !ecs.graphicsCore.depthTexture) {
+		hr = ecs->graphicsCore.device->CreateTexture2D(&dstDesc, nullptr, &ecs->graphicsCore.depthTexture);
+		if (FAILED(hr) || !ecs->graphicsCore.depthTexture) {
 			throw std::runtime_error("Failed to create resized Depth Stencil texture!");
 		}
 		
-		hr = ecs.graphicsCore.device->CreateDepthStencilView(ecs.graphicsCore.depthTexture, &dstViewDesc, &ecs.graphicsCore.depthStencilView);
-		if (FAILED(hr) || !ecs.graphicsCore.depthStencilView) {
+		hr = ecs->graphicsCore.device->CreateDepthStencilView(ecs->graphicsCore.depthTexture, &dstViewDesc, &ecs->graphicsCore.depthStencilView);
+		if (FAILED(hr) || !ecs->graphicsCore.depthStencilView) {
 			throw std::runtime_error("Failed to create resized Depth Stencil View!");
 		}
 
@@ -1109,17 +980,17 @@ public:
 			texDesc.Width = width;
 			texDesc.Height = height;
 
-			hr = ecs.graphicsCore.device->CreateTexture2D(&texDesc, nullptr, &geometryBuffer.textures[i]);
+			hr = ecs->graphicsCore.device->CreateTexture2D(&texDesc, nullptr, &geometryBuffer.textures[i]);
 			if (FAILED(hr) || !geometryBuffer.textures[i]) {
 				throw std::runtime_error("Failed to create resized GBuffer texture!");
 			}
 
-			hr = ecs.graphicsCore.device->CreateRenderTargetView(geometryBuffer.textures[i], &rtvDesc, &geometryBuffer.textureViews[i]);
+			hr = ecs->graphicsCore.device->CreateRenderTargetView(geometryBuffer.textures[i], &rtvDesc, &geometryBuffer.textureViews[i]);
 			if (FAILED(hr) || !geometryBuffer.textureViews[i]) {
 				throw std::runtime_error("Failed to create resized GBuffer texture RTV!");
 			}
 
-			hr = ecs.graphicsCore.device->CreateShaderResourceView(geometryBuffer.textures[i], &srvDesc, &geometryBuffer.textureResourceViews[i]);
+			hr = ecs->graphicsCore.device->CreateShaderResourceView(geometryBuffer.textures[i], &srvDesc, &geometryBuffer.textureResourceViews[i]);
 			if (FAILED(hr) || !geometryBuffer.textureResourceViews[i]) {
 				throw std::runtime_error("Failed to create resized GBuffer texture! SRV");
 			}
@@ -1149,13 +1020,13 @@ bool system_setup_graphics_core(ECS* ecs) {
 	};
 
 	int32_t width, height;
-	glfwGetWindowSize(ecs->application->window, &width, &height);
+	glfwGetWindowSize(ecs->window.window, &width, &height);
 
 	ecs->graphicsCore.numSwapChainBuffers = 2;
 	ecs->graphicsCore.swapChainFormat = DXGI_FORMAT_B8G8R8A8_UNORM;
 	//multisampleFormat = DXGI_FORMAT_B8G8R8A8_UNORM_SRGB;
 
-	HWND hwnd = glfwGetWin32Window(ecs->application->window);
+	HWND hwnd = glfwGetWin32Window(ecs->window.window);
 
 	DXGI_SWAP_CHAIN_DESC swapChainDesc{};
 	swapChainDesc.BufferDesc.Width = static_cast<uint32_t>(width);
@@ -1234,8 +1105,15 @@ bool system_setup_imgui(ECS* ecs) {
 
 	ImGui::StyleColorsDark();
 
-	ImGui_ImplGlfw_InitForOther(ecs->application->window, true);
+	ImGui_ImplGlfw_InitForOther(ecs->window.window, true);
 	ImGui_ImplDX11_Init(ecs->graphicsCore.device, ecs->graphicsCore.context);
+
+	return false;
+}
+
+bool system_init_application(ECS* ecs) {
+	ecs->application = new Application();
+	ecs->application->Init(ecs);
 
 	return false;
 }
@@ -1290,10 +1168,55 @@ bool system_move_in_circle(ECS* ecs) {
 	return true;
 }
 
+bool system_flycam(ECS* ecs) {
+	static double lastTime = 0.0f;
+	double thisTime = glfwGetTime();
+	float delta = static_cast<float>(thisTime - lastTime);
+	lastTime = thisTime;
+
+	auto look = XMMatrixRotationRollPitchYaw(ecs->flyCam.pitch, ecs->flyCam.yaw, 0.0f);
+
+	float x = 0;
+	x += glfwGetKey(ecs->window.window, GLFW_KEY_D) == GLFW_PRESS ? 1.0f : 0.0f;
+	x -= glfwGetKey(ecs->window.window, GLFW_KEY_A) == GLFW_PRESS ? 1.0f : 0.0f;
+
+	float y = 0;
+	y += glfwGetKey(ecs->window.window, GLFW_KEY_W) == GLFW_PRESS ? 1.0f : 0.0f;
+	y -= glfwGetKey(ecs->window.window, GLFW_KEY_S) == GLFW_PRESS ? 1.0f : 0.0f;
+
+	auto moveDir = XMVectorSet(x, 0.0f, y, 0.0f);
+	moveDir = XMVector3Normalize(moveDir);
+	moveDir = XMVector3Transform(moveDir, look);
+
+	auto moveDelta = XMVectorScale(moveDir, delta * 2.0f);
+
+	auto newPosition = XMVectorAdd(XMLoadFloat3(&ecs->flyCam.position), moveDelta);
+	XMStoreFloat3(&ecs->flyCam.position, newPosition);
+
+	ecs->application->perFrameUniforms.eyePos = ecs->flyCam.position;
+
+	auto trans = XMMatrixTranslation(ecs->flyCam.position.x, ecs->flyCam.position.y, ecs->flyCam.position.z);
+
+	auto camera = look * trans;
+	auto det = XMMatrixDeterminant(camera);
+	auto view = XMMatrixInverse(&det, camera);
+
+	int width, height;
+	glfwGetWindowSize(ecs->window.window, &width, &height);
+	ecs->application->perFrameUniforms.screenDimensions = { static_cast<float>(width), static_cast<float>(height) };
+	ecs->application->perFrameUniforms.view = view;
+	XMMATRIX proj;
+
+	proj = XMMatrixPerspectiveFovLH(45.0f, static_cast<float>(width) / height, 0.1f, 1000.0f);
+	ecs->application->perFrameUniforms.viewProj = ecs->application->perFrameUniforms.view * proj;
+
+	return true;
+}
+
 bool system_draw_imgui_debug_ui(ECS* ecs)
 {
 	int width, height;
-	glfwGetWindowSize(ecs->application->window, &width, &height);
+	glfwGetWindowSize(ecs->window.window, &width, &height);
 
 	if (ImGui::BeginMainMenuBar()) {
 		ImVec2 mainMenuSize = ImGui::GetWindowSize();
@@ -1311,7 +1234,7 @@ bool system_draw_imgui_debug_ui(ECS* ecs)
 		}
 
 		if (ImGui::MenuItem("Recompile Shaders")) {
-			ecs->application->RecompileShaders();
+			ecs->application->RecompileShaders(ecs);
 		}
 
 		ImGui::EndMainMenuBar();
@@ -1336,7 +1259,7 @@ bool system_draw_imgui_debug_ui(ECS* ecs)
 bool system_draw_loaded_model(ECS* ecs)
 {
 	int width, height;
-	glfwGetWindowSize(ecs->application->window, &width, &height);
+	glfwGetWindowSize(ecs->window.window, &width, &height);
 
 	ecs->application->deferredGraphicsPipeline->bind(ecs->graphicsCore.context);
 	//context->ClearRenderTargetView(multisampleRTV, clearColor);
@@ -1461,8 +1384,14 @@ bool system_post_draw(ECS* ecs) {
 
 int main(int argc, char** argv) {
 	try {
-		Application app;
-		app.run();
+		ECS ecs;
+		ecs.run();
+
+		while (!glfwWindowShouldClose(ecs.window.window)) {
+			glfwPollEvents();
+			ecs.run();
+
+		}
 	}
 	catch (std::runtime_error e) {
 		std::cout << e.what() << std::endl;
@@ -1472,4 +1401,109 @@ int main(int argc, char** argv) {
 	}
 
 	return 0;
+}
+
+void ResourceWindow::GlfwWindowSizeCallback(GLFWwindow* window, int width, int height) {
+	auto ecs = reinterpret_cast<ECS*>(glfwGetWindowUserPointer(window));
+
+	ecs->application->OnWindowResized(ecs, width, height);
+}
+
+void ResourceWindow::GlfwCursorPosCallback(GLFWwindow* window, double x, double y) {
+	int width, height;
+	glfwGetWindowSize(window, &width, &height);
+
+	static bool isFirstTime = true;
+	static double lastX = 0.0f;
+	static double lastY = 0.0f;
+
+	auto ecs = reinterpret_cast<ECS*>(glfwGetWindowUserPointer(window));
+
+	if (isFirstTime) {
+		lastX = x;
+		lastY = y;
+		isFirstTime = false;
+	}
+
+	if (glfwGetInputMode(window, GLFW_CURSOR) == GLFW_CURSOR_DISABLED) {
+		float extent = PI - 0.1f;
+
+		ecs->flyCam.yaw += static_cast<float>(x - lastX) / width;
+		ecs->flyCam.pitch += static_cast<float>(y - lastY) / height;
+
+		ecs->flyCam.yaw = std::fmodf(ecs->flyCam.yaw, PI * 2.0f);
+		ecs->flyCam.pitch = std::fmaxf(-extent, std::fminf(extent, ecs->flyCam.pitch));
+	}
+
+	lastX = (float)x;
+	lastY = (float)y;
+}
+
+void ResourceWindow::GlfwKeyCallback(GLFWwindow* window, int key, int scancode, int action, int mods) {
+	if (ImGui::GetIO().WantCaptureKeyboard) return;
+
+	auto app = reinterpret_cast<Application*>(glfwGetWindowUserPointer(window));
+
+	if (key == GLFW_KEY_ESCAPE && action == GLFW_PRESS) {
+		glfwSetInputMode(window, GLFW_CURSOR, GLFW_CURSOR_NORMAL);
+	}
+}
+
+void ResourceWindow::GlfwMouseButtonCallback(GLFWwindow* window, int button, int action, int mods)
+{
+	if (ImGui::GetIO().WantCaptureMouse) return;
+
+	auto app = reinterpret_cast<Application*>(glfwGetWindowUserPointer(window));
+
+	if (button == GLFW_MOUSE_BUTTON_1 && action == GLFW_PRESS) {
+		glfwSetInputMode(window, GLFW_CURSOR, GLFW_CURSOR_DISABLED);
+	}
+}
+
+bool system_setup_window(ECS* ecs) {
+	if (!glfwInit()) {
+		throw std::runtime_error("Failed to init glfw");
+	}
+
+	glfwSetErrorCallback(ResourceWindow::GlfwErrorCallback);
+
+	glfwWindowHint(GLFW_CLIENT_API, GLFW_NO_API);
+
+	ecs->window.window = glfwCreateWindow(1280, 720, "D3D11 Application", nullptr, nullptr);
+	if (!ecs->window.window) {
+		throw std::runtime_error("Failed to create window");
+	}
+
+	glfwSetWindowUserPointer(ecs->window.window, ecs);
+
+	glfwSetInputMode(ecs->window.window, GLFW_CURSOR, GLFW_CURSOR_DISABLED);
+
+	glfwSetWindowSizeCallback(ecs->window.window, ResourceWindow::GlfwWindowSizeCallback);
+	glfwSetCursorPosCallback(ecs->window.window, ResourceWindow::GlfwCursorPosCallback);
+	glfwSetKeyCallback(ecs->window.window, ResourceWindow::GlfwKeyCallback);
+	glfwSetMouseButtonCallback(ecs->window.window, ResourceWindow::GlfwMouseButtonCallback);
+
+	return false;
+}
+
+void ECS::Cleanup() {
+	for (auto texture : textureCache) {
+		delete texture.second;
+	}
+
+	for (auto meshes : modelCache) {
+		for (auto mesh : meshes.second) {
+			mesh.vertices->Release();
+			mesh.indices->Release();
+		}
+	}
+
+	// Delete pipelines
+	// TODO WT: Want this to not be a pointer, requires moving stuff to separate files to define the dependency tree.
+	application->Cleanup();
+	delete application;
+
+	imguiLifetime.Cleanup();
+	graphicsCore.Cleanup();
+	window.Cleanup();
 }
