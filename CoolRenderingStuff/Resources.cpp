@@ -32,7 +32,7 @@ void ResourceGraphicsCore::Cleanup() {
 void ResourceWindow::GlfwWindowSizeCallback(GLFWwindow* window, int width, int height) {
 	auto ecs = reinterpret_cast<ECS*>(glfwGetWindowUserPointer(window));
 
-	ecs->application->OnWindowResized(ecs, width, height);
+	ecs->resources.application->OnWindowResized(ecs, width, height);
 }
 
 void ResourceWindow::GlfwCursorPosCallback(GLFWwindow* window, double x, double y) {
@@ -54,11 +54,11 @@ void ResourceWindow::GlfwCursorPosCallback(GLFWwindow* window, double x, double 
 	if (glfwGetInputMode(window, GLFW_CURSOR) == GLFW_CURSOR_DISABLED) {
 		float extent = float(PI - 0.1);
 
-		ecs->flyCam.yaw += static_cast<float>(x - lastX) / width;
-		ecs->flyCam.pitch += static_cast<float>(y - lastY) / height;
+		ecs->resources.flyCam.yaw += static_cast<float>(x - lastX) / width;
+		ecs->resources.flyCam.pitch += static_cast<float>(y - lastY) / height;
 
-		ecs->flyCam.yaw = std::fmodf(ecs->flyCam.yaw, float(PI * 2.0));
-		ecs->flyCam.pitch = std::fmaxf(-extent, std::fminf(extent, ecs->flyCam.pitch));
+		ecs->resources.flyCam.yaw = std::fmodf(ecs->resources.flyCam.yaw, float(PI * 2.0));
+		ecs->resources.flyCam.pitch = std::fmaxf(-extent, std::fminf(extent, ecs->resources.flyCam.pitch));
 	}
 
 	lastX = (float)x;

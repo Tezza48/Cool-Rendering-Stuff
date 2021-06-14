@@ -7,17 +7,29 @@
 #include "Texture.h"
 #include "Lighting.h"
 #include <optional>
+#include "GraphicsPipeline.h"
+#include "Lighting.h"
 
 struct Application;
 
 struct Mesh {
-	uint32_t materialId;
+	size_t defaultMaterialId = -1;
 
 	size_t numVertices;
 	ID3D11Buffer* vertices;
 
 	uint32_t indexCount;
 	ID3D11Buffer* indices;
+
+	// This causes runtime error, maybe because of copys and stuff.
+	// 	   for now clean up in ECS::Cleanup or manually.
+	//~Mesh() {
+	//	vertices->Release();
+	//	vertices = nullptr;
+
+	//	indices->Release();
+	//	indices = nullptr;
+	//}
 };
 
 struct ComponentMovesInCircle {
@@ -26,7 +38,8 @@ struct ComponentMovesInCircle {
 };
 
 struct ComponentRenderModel {
-	std::string path;
+	size_t meshId;
+	size_t materialId;
 };
 
 struct MaterialCbuffer {
@@ -46,6 +59,36 @@ struct Material {
 	MaterialCbuffer settings;
 };
 
+// TODO WT: This will end up wasting lots of space with many components and entities.
+// Consider Groups for components which are always together. some kind of storage that allows for holes
+// TODO WT: bitflags for which components are used instead of optional.
+struct Entity {
+	std::optional<DirectX::XMFLOAT3> position;
+	std::optional<Light> light;
+	std::optional<ComponentMovesInCircle> movesInCircle;
+	std::optional<ComponentRenderModel> renderModel;
+};
+
+struct Resources {
+	Application* application;
+
+	ResourceWindow window;
+	ResourceImguiLifetime imguiLifetime;
+	ResourceGraphicsCore graphicsCore;
+	std::vector<Mesh> modelCache;
+	std::vector<Material> materialCache;
+
+	std::unordered_map<std::string, Texture*> textureCache;
+	ResourceFlycam flyCam;
+
+	GraphicsPipeline* deferredGraphicsPipeline;
+	GraphicsPipeline* lightingGraphicsPipeline;
+
+	Lighting* lighting;
+
+	~Resources();
+};
+
 struct ECS {
 	using System = bool(ECS* ecs);
 	std::vector<System*> systems;
@@ -53,51 +96,12 @@ struct ECS {
 	int nextEntity = 0;
 
 	// Resources
-	// TODO WT: would probably make sense to make these std::optional.
-	Application* application;
-
-	ResourceWindow window;
-	ResourceImguiLifetime imguiLifetime;
-	ResourceGraphicsCore graphicsCore;
-	std::unordered_map<std::string, std::vector<Mesh>> modelCache;
-	std::unordered_map<std::string, std::vector<Material>> materialCache;
-
-	std::unordered_map<std::string, Texture*> textureCache;
-	ResourceFlycam flyCam;
+	Resources resources;
 
 	// Components
-	std::vector<std::optional<Light>> lights;
-	std::vector<std::optional<ComponentMovesInCircle>> movesInCircle;
+	std::vector<Entity> entities;
 
-	void Cleanup();
+	int addEntity();
 
-	int addEntity() {
-		lights.emplace_back();
-		movesInCircle.emplace_back();
-
-		return nextEntity++;
-	}
-
-	void run() {
-		//std::vector<std::vector<System*>::iterator> toRemove;
-
-		std::vector<System*> nextSystems;
-		for (const auto system : systems) {
-			if (system(this)) {
-				nextSystems.push_back(system);
-			}
-		}
-
-		systems = nextSystems;
-
-		//for (auto systemIt = systems.begin(); systemIt != systems.end(); systemIt++) {
-		//	if (!(*systemIt)(this)) {
-		//		toRemove.push_back(systemIt);
-		//	}
-		//}
-
-		//for (const auto& it : toRemove) {
-		//	systems.erase(it);
-		//}
-	}
+	void run();
 };

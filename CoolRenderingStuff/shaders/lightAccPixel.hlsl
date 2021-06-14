@@ -34,7 +34,5 @@ float4 main(VertToPixel i) : SV_TARGET
 
 	color += albedo.rgb * g_lightAmbient.rgb;
 
-	//float percent = dist / g_lightRadius;
-
 	return float4(color, 1.0);
 }

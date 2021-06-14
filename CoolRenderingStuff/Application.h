@@ -48,7 +48,11 @@ struct GeometryBuffer {
 	ID3D11RenderTargetView* textureViews[MAX_BUFFER];
 	ID3D11ShaderResourceView* textureResourceViews[MAX_BUFFER];
 
+	ID3D11SamplerState* sampler;
+
 	~GeometryBuffer() {
+		sampler->Release();
+
 		for (size_t i = 0; i < MAX_BUFFER; i++) {
 			if (textureResourceViews[i])
 				textureResourceViews[i]->Release();
@@ -61,7 +65,7 @@ struct GeometryBuffer {
 		}
 	}
 
-	void bind(ID3D11DeviceContext* context, ID3D11DepthStencilView* depthStencilView = nullptr) {
+	void bindBuffers(ID3D11DeviceContext* context, ID3D11DepthStencilView* depthStencilView = nullptr) {
 		context->OMSetRenderTargets(MAX_BUFFER, textureViews, depthStencilView);
 	}
 };
@@ -77,28 +81,14 @@ struct Vertex {
 struct Application {
 	static std::vector<char> readFile(const std::string& filename);
 
-	GraphicsPipeline* deferredGraphicsPipeline;
-	GraphicsPipeline* lightingGraphicsPipeline;
-
 	ID3D11Buffer* perFrameUniformsBuffer;
 	PerFrameUniforms perFrameUniforms;
 
 	ID3D11Buffer* perMaterialUniformsBuffer;
 
-	ID3D11SamplerState* gbufferSampler;
-	GeometryBuffer geometryBuffer;
-
-	Lighting* lighting;
-
-	std::vector<Light> lights;
+	GeometryBuffer geometryBuffers;
 
 	void Init(ECS* ecs);
-
-	void Cleanup();
-
-	void createDeferredGraphicsPipeline(ECS* ecs);
-
-	void createLightingGraphicsPipeline(ECS* ecs);
 
 	void createConstantBuffers(ECS* ecs);
 

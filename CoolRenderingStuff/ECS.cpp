@@ -4,21 +4,41 @@
 
 #include "Application.h"
 
-void ECS::Cleanup() {
+int ECS::addEntity() {
+	entities.emplace_back();
+
+	return nextEntity++;
+}
+
+void ECS::run() {
+	std::vector<System*> nextSystems;
+	for (const auto system : systems) {
+		if (system(this)) {
+			nextSystems.push_back(system);
+		}
+	}
+
+	systems = nextSystems;
+}
+
+Resources::~Resources()
+{
+	delete lighting;
+
+	delete deferredGraphicsPipeline;
+	delete lightingGraphicsPipeline;
+
 	for (auto texture : textureCache) {
 		delete texture.second;
 	}
 
-	for (auto meshes : modelCache) {
-		for (auto mesh : meshes.second) {
-			mesh.vertices->Release();
-			mesh.indices->Release();
-		}
+	for (auto mesh : modelCache) {
+		mesh.vertices->Release();
+		mesh.indices->Release();
 	}
 
 	// Delete pipelines
 	// TODO WT: Want this to not be a pointer, requires moving stuff to separate files to define the dependency tree.
-	application->Cleanup();
 	delete application;
 
 	imguiLifetime.Cleanup();
