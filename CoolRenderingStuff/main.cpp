@@ -1294,27 +1294,38 @@ private:
 			throw std::runtime_error("Failed to get a back buffer!");
 		}
 
-		ID3D11RenderTargetView* renderTarget;
+		ID3D11RenderTargetView* backBufferRTV;
 
 		D3D11_RENDER_TARGET_VIEW_DESC rtvDesc{};
 		rtvDesc.Format = swapChainFormat;
 		rtvDesc.ViewDimension = D3D11_RTV_DIMENSION_TEXTURE2D;
 		rtvDesc.Texture2D.MipSlice = 0;
 
-		if (FAILED(device->CreateRenderTargetView(backBuffer, &rtvDesc, &renderTarget))) {
+		if (FAILED(device->CreateRenderTargetView(backBuffer, &rtvDesc, &backBufferRTV))) {
 			throw std::runtime_error("Failed to create backbuffer RTV!");
 		}
 
-		context->ResolveSubresource(backBuffer, 0, postProcessingBuffer, 0, swapChainFormat);
+		//context->ResolveSubresource(backBuffer, 0, postProcessingBuffer, 0, swapChainFormat);
+		
 
 		backBuffer->Release();
 
+		// Run the post processing pipeline and draw to the back buffer view.
+		context->ClearRenderTargetView(backBufferRTV, clearColor);
+		context->OMSetRenderTargets(1, &backBufferRTV, nullptr);
+
+		postProcessingPipeline->bind(context);
+		context->PSSetShaderResources(0, 1, &postProcessingBufferSRV);
+		// Use the gbuffer sampler here, it does what we need in the post processing pipeline.
+		context->PSSetSamplers(0, 1, &gbufferSampler);
+		context->Draw(4, 0);
+		context->PSSetShaderResources(0, 1, &nullSRVs[0]);
 
 		ImGui::Render();
 		ImGui_ImplDX11_RenderDrawData(ImGui::GetDrawData());
 
 		swapChain->Present(1, 0);
-		renderTarget->Release();
+		backBufferRTV->Release();
 	}
 
 	void RecompileShaders() {
