@@ -295,8 +295,13 @@ private:
 	IDXGISwapChain* swapChain;
 	DXGI_FORMAT swapChainFormat = DXGI_FORMAT_UNKNOWN;
 
-	GraphicsPipeline *deferredGraphicsPipeline;
-	GraphicsPipeline *lightingGraphicsPipeline;
+	GraphicsPipeline* deferredGraphicsPipeline;
+	GraphicsPipeline* lightingGraphicsPipeline;
+	GraphicsPipeline* postProcessingPipeline;
+
+	ID3D11Texture2D* postProcessingBuffer;
+	ID3D11ShaderResourceView* postProcessingBufferSRV;
+	ID3D11RenderTargetView* postProcessingBufferRTV;
 
 	ID3D11Texture2D* depthTexture;
 	ID3D11DepthStencilView* depthStencilView;
@@ -330,6 +335,7 @@ public:
 		initImgui();
 		createDeferredGraphicsPipeline();
 		createLightingGraphicsPipeline();
+		createPostProcessingPipeline();
 		createConstantBuffers();
 		createGbuffers();
 
@@ -377,6 +383,11 @@ public:
 
 		delete lightingGraphicsPipeline;
 		delete deferredGraphicsPipeline;
+		delete postProcessingPipeline;
+
+		postProcessingBufferSRV->Release();
+		postProcessingBufferRTV->Release();
+		postProcessingBuffer->Release();
 
 		ImGui_ImplDX11_Shutdown();
 		ImGui_ImplGlfw_Shutdown();
@@ -716,6 +727,83 @@ private:
 		}
 	}
 
+	void createPostProcessingPipeline() {
+		auto vShaderCode = readFile("shaders/postProcessSSAOVertex.cso");
+		auto pShaderCode = readFile("shaders/postProcessSSAOPixel.cso");
+
+		D3D11_RASTERIZER_DESC rasterizerDesc{};
+		rasterizerDesc.FillMode = D3D11_FILL_SOLID;
+		rasterizerDesc.CullMode = D3D11_CULL_NONE;
+		rasterizerDesc.FrontCounterClockwise = false;
+		rasterizerDesc.DepthBias = 0;
+		rasterizerDesc.DepthBiasClamp = 0;
+		rasterizerDesc.SlopeScaledDepthBias = 0;
+		rasterizerDesc.DepthClipEnable = false;
+		rasterizerDesc.ScissorEnable = true;
+		rasterizerDesc.MultisampleEnable = false; //useMultisampling;
+		rasterizerDesc.AntialiasedLineEnable = false;
+
+		int width, height;
+		glfwGetWindowSize(window, &width, &height);
+
+		D3D11_VIEWPORT viewport{};
+		viewport.TopLeftX = 0.0f;
+		viewport.TopLeftY = 0.0f;
+		viewport.Width = static_cast<float>(width);
+		viewport.Height = static_cast<float>(height);
+		viewport.MinDepth = 0.0f;
+		viewport.MaxDepth = 1.0f;
+
+		D3D11_RECT scissor{};
+		scissor.left = 0;
+		scissor.top = 0;
+		scissor.right = width;
+		scissor.bottom = height;
+
+		D3D11_DEPTH_STENCIL_DESC depthStencilDesc{};
+		depthStencilDesc.DepthEnable = true;
+		depthStencilDesc.DepthWriteMask = D3D11_DEPTH_WRITE_MASK_ZERO;
+		depthStencilDesc.DepthFunc = D3D11_COMPARISON_NEVER;
+		depthStencilDesc.StencilEnable = false;
+		depthStencilDesc.StencilWriteMask = D3D11_DEFAULT_STENCIL_WRITE_MASK;
+		depthStencilDesc.StencilReadMask = D3D11_DEFAULT_STENCIL_READ_MASK;
+
+		depthStencilDesc.FrontFace.StencilFailOp = D3D11_STENCIL_OP_KEEP;
+		depthStencilDesc.FrontFace.StencilDepthFailOp = D3D11_STENCIL_OP_INCR;
+		depthStencilDesc.FrontFace.StencilPassOp = D3D11_STENCIL_OP_KEEP;
+		depthStencilDesc.FrontFace.StencilFunc = D3D11_COMPARISON_ALWAYS;
+
+		depthStencilDesc.BackFace.StencilFailOp = D3D11_STENCIL_OP_KEEP;
+		depthStencilDesc.BackFace.StencilDepthFailOp = D3D11_STENCIL_OP_INCR;
+		depthStencilDesc.BackFace.StencilPassOp = D3D11_STENCIL_OP_KEEP;
+		depthStencilDesc.BackFace.StencilFunc = D3D11_COMPARISON_ALWAYS;
+
+		D3D11_BLEND_DESC blendDesc{};
+		blendDesc.AlphaToCoverageEnable = false;
+		blendDesc.IndependentBlendEnable = false;
+		blendDesc.RenderTarget[0].BlendEnable = true;
+		blendDesc.RenderTarget[0].SrcBlend = D3D11_BLEND_ONE;
+		blendDesc.RenderTarget[0].DestBlend = D3D11_BLEND_ONE;
+		blendDesc.RenderTarget[0].BlendOp = D3D11_BLEND_OP_ADD;
+		blendDesc.RenderTarget[0].SrcBlendAlpha = D3D11_BLEND_ONE;
+		blendDesc.RenderTarget[0].DestBlendAlpha = D3D11_BLEND_ZERO;
+		blendDesc.RenderTarget[0].BlendOpAlpha = D3D11_BLEND_OP_ADD;
+		blendDesc.RenderTarget[0].RenderTargetWriteMask = D3D11_COLOR_WRITE_ENABLE_ALL;
+
+		postProcessingPipeline = new GraphicsPipeline(
+			device,
+			vShaderCode,
+			pShaderCode,
+			std::nullopt,
+			rasterizerDesc,
+			depthStencilDesc,
+			blendDesc,
+			D3D11_PRIMITIVE_TOPOLOGY_TRIANGLESTRIP,
+			viewport,
+			scissor
+		);
+	}
+
 	void createConstantBuffers() {
 		D3D11_BUFFER_DESC desc{};
 		desc.ByteWidth = sizeof(PerFrameUniforms);
@@ -783,6 +871,43 @@ private:
 			if (FAILED(device->CreateShaderResourceView(geometryBuffer.textures[i], &srvDesc, &geometryBuffer.textureResourceViews[i]))) {
 				throw std::runtime_error("Failed to create gbuffer SRV!");
 			}
+		}
+
+
+		D3D11_TEXTURE2D_DESC textureDesc;
+		textureDesc.Width = width;
+		textureDesc.Height = height;
+		textureDesc.MipLevels = 1;
+		textureDesc.ArraySize = 1;
+		textureDesc.Format = DXGI_FORMAT_R32G32B32A32_FLOAT;
+		textureDesc.SampleDesc.Count = 1;
+		textureDesc.SampleDesc.Quality = 0;
+		textureDesc.Usage = D3D11_USAGE_DEFAULT;
+		textureDesc.BindFlags = D3D11_BIND_SHADER_RESOURCE | D3D11_BIND_RENDER_TARGET;
+		textureDesc.CPUAccessFlags = 0;
+		textureDesc.MiscFlags = 0;
+
+		if (FAILED(device->CreateTexture2D(&textureDesc, nullptr, &postProcessingBuffer))) {
+			throw std::runtime_error("Failed to create post processing buffer texture!");
+		}
+
+		D3D11_RENDER_TARGET_VIEW_DESC rtvDesc{};
+		rtvDesc.Format = textureDesc.Format;
+		rtvDesc.ViewDimension = D3D11_RTV_DIMENSION_TEXTURE2D;
+		rtvDesc.Texture2D.MipSlice = 0;
+
+		if (FAILED(device->CreateRenderTargetView(postProcessingBuffer, &rtvDesc, &postProcessingBufferRTV))) {
+			throw std::runtime_error("Failed to create post processing buffer RTV!");
+		}
+
+		D3D11_SHADER_RESOURCE_VIEW_DESC srvDesc{};
+		srvDesc.Format = textureDesc.Format;
+		srvDesc.ViewDimension = D3D11_SRV_DIMENSION_TEXTURE2D;
+		srvDesc.Texture2D.MipLevels = 1;
+		srvDesc.Texture2D.MostDetailedMip = 0;
+
+		if (FAILED(device->CreateShaderResourceView(postProcessingBuffer, &srvDesc, &postProcessingBufferSRV))) {
+			throw std::runtime_error("Failed to create post processing buffer SRV!");
 		}
 	}
 
@@ -1012,7 +1137,8 @@ private:
 		if (ImGui::BeginMainMenuBar()) {
 			ImVec2 mainMenuSize = ImGui::GetWindowSize();
 
-			deferredGraphicsPipeline->scissor.top = lightingGraphicsPipeline->scissor.top = static_cast<uint64_t>(mainMenuSize.y);
+			deferredGraphicsPipeline->scissor.top = lightingGraphicsPipeline->scissor.top = postProcessingPipeline->scissor.top = static_cast<uint64_t>(mainMenuSize.y);
+			
 
 			static int currentVisualizedBuffer = -1;
 			if (ImGui::BeginMenu("Visualize Buffer")) {
@@ -1138,26 +1264,11 @@ private:
 		}
 
 		// Light accumulation pass to the backbuffer
-		ID3D11Texture2D* backBuffer;
-		if (FAILED(swapChain->GetBuffer(0, IID_PPV_ARGS(&backBuffer)))) {
-			throw std::runtime_error("Failed to get a back buffer!");
-		}
 
-		ID3D11RenderTargetView* renderTarget;
+		// Accumulate to the intermediate post processing buffer
 
-		D3D11_RENDER_TARGET_VIEW_DESC rtvDesc{};
-		rtvDesc.Format = swapChainFormat;
-		rtvDesc.ViewDimension = D3D11_RTV_DIMENSION_TEXTURE2D;
-		rtvDesc.Texture2D.MipSlice = 0;
-
-		if (FAILED(device->CreateRenderTargetView(backBuffer, &rtvDesc, &renderTarget))) {
-			throw std::runtime_error("Failed to create backbuffer RTV!");
-		}
-
-		backBuffer->Release();
-
-		context->ClearRenderTargetView(renderTarget, clearColor);
-		context->OMSetRenderTargets(1, &renderTarget, nullptr);
+		context->ClearRenderTargetView(postProcessingBufferRTV, clearColor);
+		context->OMSetRenderTargets(1, &postProcessingBufferRTV, nullptr);
 
 		lightingGraphicsPipeline->bind(context);
 		context->PSSetShaderResources(0, GeometryBuffer::MAX_BUFFER, geometryBuffer.textureResourceViews);
@@ -1175,6 +1286,29 @@ private:
 		context->PSSetShaderResources(0, GeometryBuffer::MAX_BUFFER, nullSRVs);
 
 		//context->ResolveSubresource(backBuffer, 0, multisampleTexture, 0, swapChainFormat);
+
+		// Now run post processing on the post processing buffer onto the backbuffer
+
+		ID3D11Texture2D* backBuffer;
+		if (FAILED(swapChain->GetBuffer(0, IID_PPV_ARGS(&backBuffer)))) {
+			throw std::runtime_error("Failed to get a back buffer!");
+		}
+
+		ID3D11RenderTargetView* renderTarget;
+
+		D3D11_RENDER_TARGET_VIEW_DESC rtvDesc{};
+		rtvDesc.Format = swapChainFormat;
+		rtvDesc.ViewDimension = D3D11_RTV_DIMENSION_TEXTURE2D;
+		rtvDesc.Texture2D.MipSlice = 0;
+
+		if (FAILED(device->CreateRenderTargetView(backBuffer, &rtvDesc, &renderTarget))) {
+			throw std::runtime_error("Failed to create backbuffer RTV!");
+		}
+
+		context->ResolveSubresource(backBuffer, 0, postProcessingBuffer, 0, swapChainFormat);
+
+		backBuffer->Release();
+
 
 		ImGui::Render();
 		ImGui_ImplDX11_RenderDrawData(ImGui::GetDrawData());

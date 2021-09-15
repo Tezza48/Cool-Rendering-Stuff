@@ -56,6 +56,8 @@
     <FxCompile Include="shaders\deferredVertex.hlsl" />
     <FxCompile Include="shaders\lightAccVertex.hlsl" />
     <FxCompile Include="shaders\lightAccPixel.hlsl" />
+    <FxCompile Include="shaders\postProcessSSAOPixel.hlsl" />
+    <FxCompile Include="shaders\postProcessSSAOVertex.hlsl" />
   </ItemGroup>
   <ItemGroup>
     <ClInclude Include="GraphicsPipeline.h">
