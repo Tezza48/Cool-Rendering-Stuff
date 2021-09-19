@@ -206,6 +206,7 @@
   <ItemGroup>
     <ClInclude Include="GraphicsPipeline.h" />
     <ClInclude Include="Lighting.h" />
+    <ClInclude Include="MiscUtility.h" />
     <ClInclude Include="vendor\imgui\imconfig.h" />
     <ClInclude Include="vendor\imgui\imgui.h" />
     <ClInclude Include="vendor\imgui\imgui_impl_dx11.h" />

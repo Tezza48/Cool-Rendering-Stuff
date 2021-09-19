@@ -150,7 +150,7 @@ struct Texture {
 			throw std::runtime_error("Failed to create texture2D!");
 		}
 
-		texture->SetPrivateData(WKPDID_D3DDebugObjectName, name.size(), name.c_str());
+		texture->SetPrivateData(WKPDID_D3DDebugObjectName, (uint32_t)name.size(), name.c_str());
 
 		context->UpdateSubresource(texture, 0, NULL, data, width * 4 * sizeof(unsigned char), 0);
 
@@ -193,6 +193,24 @@ struct Texture {
 		sampler->Release();
 	}
 };
+
+static std::vector<char> readFile(const std::string& filename) {
+	std::ifstream file(filename, std::ios::ate | std::ios::binary);
+
+	if (!file.is_open()) {
+		throw std::runtime_error("Failed to open file!");
+	}
+
+	size_t fileSize = (size_t)file.tellg();
+	std::vector<char> buffer(fileSize);
+
+	file.seekg(0);
+	file.read(buffer.data(), fileSize);
+
+	file.close();
+
+	return buffer;
+}
 
 struct PerFrameUniforms {
 	XMFLOAT2 screenDimensions;
@@ -266,24 +284,6 @@ public:
 		}
 	}
 
-	static std::vector<char> readFile(const std::string& filename) {
-		std::ifstream file(filename, std::ios::ate | std::ios::binary);
-
-		if (!file.is_open()) {
-			throw std::runtime_error("Failed to open file!");
-		}
-
-		size_t fileSize = (size_t)file.tellg();
-		std::vector<char> buffer(fileSize);
-
-		file.seekg(0);
-		file.read(buffer.data(), fileSize);
-
-		file.close();
-
-		return buffer;
-	}
-
 public:
 protected:
 private:
@@ -294,6 +294,8 @@ private:
 	uint32_t numSwapChainBuffers;
 	IDXGISwapChain* swapChain;
 	DXGI_FORMAT swapChainFormat = DXGI_FORMAT_UNKNOWN;
+
+	ShaderManager shaderManager;
 
 	GraphicsPipeline* deferredGraphicsPipeline;
 	GraphicsPipeline* lightingGraphicsPipeline;
@@ -541,8 +543,12 @@ private:
 	}
 
 	void createDeferredGraphicsPipeline() {
-		std::vector<char> vertexShaderCode = readFile("shaders/deferredVertex.cso");
-		std::vector<char> pixelShaderCode = readFile("shaders/deferredPixel.cso");
+		auto* shader = shaderManager.registerShader(
+			device, 
+			"deferredVertex", 
+			"shaders/deferredVertex", 
+			"shaders/deferredPixel"
+		);
 
 		D3D11_RASTERIZER_DESC rasterizerDesc{};
 		rasterizerDesc.FillMode = D3D11_FILL_SOLID;
@@ -614,8 +620,7 @@ private:
 
 		deferredGraphicsPipeline = new GraphicsPipeline(
 			device,
-			vertexShaderCode,
-			pixelShaderCode,
+			shader,
 			std::make_optional(inputs),
 			rasterizerDesc,
 			depthStencilDesc,
@@ -627,8 +632,12 @@ private:
 	}
 
 	void createLightingGraphicsPipeline() {
-		std::vector<char> vertexShaderCode = readFile("shaders/lightAccVertex.cso");
-		std::vector<char> pixelShaderCode = readFile("shaders/lightAccPixel.cso");
+		auto* shader = shaderManager.registerShader(
+			device,
+			"lightAccumulation",
+			"shaders/lightAccVertex",
+			"shaders/lightAccPixel"
+		);
 
 		D3D11_RASTERIZER_DESC rasterizerDesc{};
 		rasterizerDesc.FillMode = D3D11_FILL_SOLID;
@@ -694,8 +703,7 @@ private:
 
 		lightingGraphicsPipeline = new GraphicsPipeline(
 			device,
-			vertexShaderCode,
-			pixelShaderCode,
+			shader,
 			//std::make_optional(inputs),
 			std::nullopt,
 			rasterizerDesc,
@@ -728,8 +736,12 @@ private:
 	}
 
 	void createPostProcessingPipeline() {
-		auto vShaderCode = readFile("shaders/postProcessSSAOVertex.cso");
-		auto pShaderCode = readFile("shaders/postProcessSSAOPixel.cso");
+		auto* shader = shaderManager.registerShader(
+			device,
+			"postProcessing",
+			"shaders/postProcessSSAOVertex",
+			"shaders/postProcessSSAOPixel"
+		);
 
 		D3D11_RASTERIZER_DESC rasterizerDesc{};
 		rasterizerDesc.FillMode = D3D11_FILL_SOLID;
@@ -792,8 +804,7 @@ private:
 
 		postProcessingPipeline = new GraphicsPipeline(
 			device,
-			vShaderCode,
-			pShaderCode,
+			shader,
 			std::nullopt,
 			rasterizerDesc,
 			depthStencilDesc,
@@ -982,7 +993,7 @@ private:
 
 			std::string vbufferName(data->mName.C_Str());
 			vbufferName += "_VertexBuffer";
-			mesh.vertices->SetPrivateData(WKPDID_D3DDebugObjectName, vbufferName.size(), vbufferName.c_str());
+			mesh.vertices->SetPrivateData(WKPDID_D3DDebugObjectName, (uint32_t)vbufferName.size(), vbufferName.c_str());
 
 			assert(SUCCEEDED(vbHR));
 
@@ -1002,7 +1013,7 @@ private:
 
 			std::string ibufferName(data->mName.C_Str());
 			ibufferName += "_IndexBuffer";
-			mesh.indices->SetPrivateData(WKPDID_D3DDebugObjectName, ibufferName.size(), ibufferName.c_str());
+			mesh.indices->SetPrivateData(WKPDID_D3DDebugObjectName, (uint32_t)ibufferName.size(), ibufferName.c_str());
 
 			assert(SUCCEEDED(vbHR));
 
@@ -1329,75 +1340,7 @@ private:
 	}
 
 	void RecompileShaders() {
-		// TODO WT: Clean up this memory leak heaven!
-		ID3D11VertexShader* newVertShader;
-		ID3D11PixelShader* newPixelShader;
-		ID3D10Blob* bytecode;
-		ID3D10Blob* errors;
-
-		// Graphics
-		if (FAILED(D3DCompileFromFile(L"shaders/deferredVertex.hlsl", nullptr, D3D_COMPILE_STANDARD_FILE_INCLUDE, "main", "vs_5_0", 0, 0, &bytecode, &errors))) {
-			std::wcout << L"deferred vshader error " << (char*)errors->GetBufferPointer() << std::endl;
-			if (errors)
-				errors->Release();
-			return;
-		}
-
-		device->CreateVertexShader(bytecode->GetBufferPointer(), bytecode->GetBufferSize(), nullptr, &newVertShader);
-		if (errors)
-			errors->Release();
-		bytecode->Release();
-
-		if (FAILED(D3DCompileFromFile(L"shaders/deferredPixel.hlsl", nullptr, D3D_COMPILE_STANDARD_FILE_INCLUDE, "main", "ps_5_0", 0, 0, &bytecode, &errors))) {
-			std::wcout << L"deferred pshader error" << (char*)errors->GetBufferPointer() << std::endl;
-			if (errors)
-				errors->Release();
-			return;
-		}
-
-		device->CreatePixelShader(bytecode->GetBufferPointer(), bytecode->GetBufferSize(), nullptr, &newPixelShader);
-		if (errors)
-			errors->Release();
-		bytecode->Release();
-
-		deferredGraphicsPipeline->vertexShader->Release();
-		deferredGraphicsPipeline->pixelShader->Release();
-		deferredGraphicsPipeline->vertexShader = newVertShader;
-		deferredGraphicsPipeline->pixelShader = newPixelShader;
-
-
-
-		// Lighting
-		if (FAILED(D3DCompileFromFile(L"shaders/lightAccVertex.hlsl", nullptr, D3D_COMPILE_STANDARD_FILE_INCLUDE, "main", "vs_5_0", 0, 0, &bytecode, &errors))) {
-			std::wcout << L"lightAcc vshader error " << (char*)errors->GetBufferPointer() << std::endl;
-			if (errors)
-				errors->Release();
-			return;
-		}
-
-		device->CreateVertexShader(bytecode->GetBufferPointer(), bytecode->GetBufferSize(), nullptr, &newVertShader);
-		if (errors)
-			errors->Release();
-		bytecode->Release();
-
-		if (FAILED(D3DCompileFromFile(L"shaders/lightAccPixel.hlsl", nullptr, D3D_COMPILE_STANDARD_FILE_INCLUDE, "main", "ps_5_0", 0, 0, &bytecode, &errors))) {
-			std::wcout << L"lightAcc pshader error: " << (char*)errors->GetBufferPointer() << std::endl;
-			if (errors)
-				errors->Release();
-			return;
-		}
-
-		device->CreatePixelShader(bytecode->GetBufferPointer(), bytecode->GetBufferSize(), nullptr, &newPixelShader);
-		if (errors)
-			errors->Release();
-		bytecode->Release();
-
-		lightingGraphicsPipeline->vertexShader->Release();
-		lightingGraphicsPipeline->pixelShader->Release();
-		lightingGraphicsPipeline->vertexShader = newVertShader;
-		lightingGraphicsPipeline->pixelShader = newPixelShader;
-
-		std::cout << "Successfully hot reloader lighting pass shaders" << std::endl;
+		shaderManager.recompile(device);
 	}
 
 	void OnWindowResized(uint32_t width, uint32_t height) {
@@ -1469,6 +1412,42 @@ private:
 
 		lightingGraphicsPipeline->scissor.right = width;
 		lightingGraphicsPipeline->scissor.bottom = height;
+
+
+		D3D11_TEXTURE2D_DESC texDesc;
+		D3D11_RENDER_TARGET_VIEW_DESC rtvDesc;
+		D3D11_SHADER_RESOURCE_VIEW_DESC srvDesc;
+		postProcessingBuffer->GetDesc(&texDesc);
+		postProcessingBufferRTV->GetDesc(&rtvDesc);
+		postProcessingBufferSRV->GetDesc(&srvDesc);
+
+		postProcessingBuffer->Release();
+		postProcessingBufferRTV->Release();
+		postProcessingBufferSRV->Release();
+
+		texDesc.Width = width;
+		texDesc.Height = height;
+
+		hr = device->CreateTexture2D(&texDesc, nullptr, &postProcessingBuffer);
+		if (FAILED(hr) || !postProcessingBuffer) {
+			throw std::runtime_error("Failed to create resized post process buffer texture!");
+		}
+
+		hr = device->CreateRenderTargetView(postProcessingBuffer, &rtvDesc, &postProcessingBufferRTV);
+		if (FAILED(hr) || !postProcessingBufferRTV) {
+			throw std::runtime_error("Failed to create resized post process buffer texture RTV!");
+		}
+
+		hr = device->CreateShaderResourceView(postProcessingBuffer, &srvDesc, &postProcessingBufferSRV);
+		if (FAILED(hr) || !postProcessingBufferSRV) {
+			throw std::runtime_error("Failed to create resized post process buffer texture! SRV");
+		}
+
+		postProcessingPipeline->viewport.Width = static_cast<float>(width);
+		postProcessingPipeline->viewport.Height = static_cast<float>(height);
+
+		postProcessingPipeline->scissor.right = width;
+		postProcessingPipeline->scissor.bottom = height;
 	}
 };
 

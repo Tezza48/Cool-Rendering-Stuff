@@ -15,7 +15,7 @@ float4 main(VertToPixel i) : SV_TARGET
 
 	float4 positionW = positionTexture.Sample(defaultSampler, uv);
 	float4 normal = normalTexture.Sample(defaultSampler, uv);
-	float4 albedo = float4(1.0, 1.0, 1.0, 1.0); // albedoTexture.Sample(defaultSampler, uv);
+	float4 albedo = /*float4(1.0, 1.0, 1.0, 1.0);*/ albedoTexture.Sample(defaultSampler, uv);
 	float4 specular = specularTexture.Sample(defaultSampler, uv);
 
 	float3 toLight = g_lightPosition - positionW;
